@@ -45,8 +45,9 @@ async def start_webserver():
     await site.start()
 
 def main():
-    loop = asyncio.get_event_loop()
-    asyncio.ensure_future(start_webserver())
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    asyncio.ensure_future(start_webserver(), loop=loop)
     loop.run_forever()
 
 
