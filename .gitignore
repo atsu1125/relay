@@ -99,3 +99,7 @@ viera.jsonld
 
 # config file
 relay.yaml
+
+
+data/
+activityrelay-data/

@@ -1,6 +1,6 @@
 # this is the path that the object graph will get dumped to (in JSON-LD format),
 # you probably shouldn't change it, but you can if you want.
-db: relay.jsonld
+db: ./data/relay.jsonld
 
 # Listener
 listen: 0.0.0.0

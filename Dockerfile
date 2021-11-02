@@ -1,4 +1,4 @@
-FROM python:3-alpine
+FROM python:3.6.15-alpine3.13
 WORKDIR /workdir
 RUN apk add alpine-sdk autoconf automake libtool gcc
 

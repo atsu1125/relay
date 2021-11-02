@@ -1,0 +1,15 @@
+version: '3'
+services:
+
+  relay:
+    build: .
+    restart: always
+    networks:
+      - external_network
+    ports:
+      - "127.0.0.1:8081:8080"
+    volumes:
+      - ./activityrelay-data:/workdir/data
+
+networks:
+  external_network:
