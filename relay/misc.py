@@ -318,3 +318,44 @@ async def validate_signature(actor, http_request):
 
 	logging.debug(f'validates? {result}')
 	return result
+
+
+class DotDict(dict):
+	def __getattr__(self, k):
+		try:
+			return self[k]
+
+		except KeyError:
+			raise AttributeError(f'{self.__class__.__name__} object has no attribute {k}') from None
+
+
+	def __setattr__(self, k, v):
+		if k.startswith('_'):
+			super().__setattr__(k, v)
+
+		else:
+			self[k] = v
+
+
+	def __setitem__(self, k, v):
+		if type(v) == dict:
+			v = DotDict(v)
+
+		super().__setitem__(k, v)
+
+
+	def __delattr__(self, k):
+		try:
+			dict.__delitem__(self, k)
+
+		except KeyError:
+			raise AttributeError(f'{self.__class__.__name__} object has no attribute {k}') from None
+
+
+	@classmethod
+	def new_from_json(cls, data):
+		return cls(json.loads(data))
+
+
+	def to_json(self, indent=None):
+		return json.dumps(self, indent=indent)

@@ -4,6 +4,8 @@ import yaml
 from pathlib import Path
 from urllib.parse import urlparse
 
+from .misc import DotDict
+
 
 relay_software_names = [
 	'activityrelay',
@@ -11,45 +13,6 @@ relay_software_names = [
 	'social.seattle.wa.us-relay',
 	'unciarelay'
 ]
-
-
-class DotDict(dict):
-	def __getattr__(self, k):
-		try:
-			return self[k]
-
-		except KeyError:
-			raise AttributeError(f'{self.__class__.__name__} object has no attribute {k}') from None
-
-
-	def __setattr__(self, k, v):
-		try:
-			if k in self._ignore_keys:
-				super().__setattr__(k, v)
-
-		except AttributeError:
-			pass
-
-		if k.startswith('_'):
-			super().__setattr__(k, v)
-
-		else:
-			self[k] = v
-
-
-	def __setitem__(self, k, v):
-		if type(v) == dict:
-			v = DotDict(v)
-
-		super().__setitem__(k, v)
-
-
-	def __delattr__(self, k):
-		try:
-			dict.__delitem__(self, k)
-
-		except KeyError:
-			raise AttributeError(f'{self.__class__.__name__} object has no attribute {k}') from None
 
 
 class RelayConfig(DotDict):
