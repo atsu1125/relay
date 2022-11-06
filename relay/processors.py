@@ -44,15 +44,26 @@ async def handle_forward(actor, data, request):
 		logging.verbose(f'already forwarded {object_id}')
 		return
 
+	activity_id = f"https://{request.host}/activities/{uuid4()}"
+
+	message = {
+		"@context": "https://www.w3.org/ns/activitystreams",
+		"type": "Announce",
+		"to": [f"https://{request.host}/followers"],
+		"actor": f"https://{request.host}/actor",
+		"object": data,
+		"id": activity_id
+	}
+
 	logging.verbose(f'Forwarding post from {actor["id"]}')
 	logging.debug(f'>> Relay {data}')
 
 	inboxes = misc.distill_inboxes(actor, object_id)
 
-	futures = [misc.request(inbox, data=data) for inbox in inboxes]
+	futures = [misc.request(inbox, data=message) for inbox in inboxes]
 	asyncio.ensure_future(asyncio.gather(*futures))
 
-	cache[object_id] = object_id
+	cache[object_id] = activity_id
 
 
 async def handle_follow(actor, data, request):
