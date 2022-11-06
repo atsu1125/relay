@@ -6,10 +6,15 @@ from Crypto.PublicKey import RSA
 from urllib.parse import urlparse
 
 
-class RelayDatabase:
+class RelayDatabase(dict):
 	def __init__(self, config):
+		dict.__init__(self, {
+			'relay-list': {},
+			'private-key': None,
+			'version': 1
+		})
+
 		self.config = config
-		self.data = None
 		self.PRIVKEY = None
 
 
@@ -25,26 +30,23 @@ class RelayDatabase:
 
 	@property
 	def privkey(self):
-		try:
-			return self.data['private-key']
-
-		except KeyError:
-			return False
+		return self['private-key']
 
 
 	@property
 	def hostnames(self):
-		return [urlparse(inbox).hostname for inbox in self.inboxes]
+		return tuple(self['relay-list'].keys())
 
 
 	@property
 	def inboxes(self):
-		return self.data.get('relay-list', [])
+		return tuple(data['inbox'] for data in self['relay-list'].values())
+		return self['relay-list']
 
 
 	def generate_key(self):
 		self.PRIVKEY = RSA.generate(4096)
-		self.data['private-key'] = self.PRIVKEY.exportKey('PEM').decode('utf-8')
+		self['private-key'] = self.PRIVKEY.exportKey('PEM').decode('utf-8')
 
 
 	def load(self):
@@ -52,14 +54,31 @@ class RelayDatabase:
 
 		try:
 			with self.config.db.open() as fd:
-				self.data = json.load(fd)
+				data = json.load(fd)
 
-			key = self.data.pop('actorKeys', None)
+			self['version'] = data.get('version', None)
+			self['private-key'] = data.get('private-key')
 
-			if key:
-				self.data['private-key'] = key.get('privateKey')
+			if self['version'] == None:
+				self['version'] = 1
 
-			self.data.pop('actors', None)
+				if 'actorKeys' in data:
+					self['private-key'] = data['actorKeys']['privateKey']
+
+				for item in data.get('relay-list', []):
+					domain = urlparse(item).hostname
+					self['relay-list'][domain] = {
+						'inbox': item,
+						'followid': None
+					}
+
+			else:
+				self['relay-list'] = data.get('relay-list', {})
+
+			for domain in self['relay-list'].keys():
+				if self.config.is_banned(domain) or (self.config.whitelist_enabled and not self.config.is_whitelisted(domain)):
+					self.del_inbox(domain)
+
 			new_db = False
 
 		except FileNotFoundError:
@@ -68,14 +87,6 @@ class RelayDatabase:
 		except json.decoder.JSONDecodeError as e:
 			if self.config.db.stat().st_size > 0:
 				raise e from None
-
-		if not self.data:
-			logging.info('No database was found. Making a new one.')
-			self.data = {}
-
-		for inbox in self.inboxes:
-			if self.config.is_banned(inbox) or (self.config.whitelist_enabled and not self.config.is_whitelisted(inbox)):
-				self.del_inbox(inbox)
 
 		if not self.privkey:
 			logging.info("No actor keys present, generating 4096-bit RSA keypair.")
@@ -90,34 +101,57 @@ class RelayDatabase:
 
 	def save(self):
 		with self.config.db.open('w') as fd:
-			data = {
-				'relay-list': self.inboxes,
-				'private-key': self.privkey
-			}
-
-			json.dump(data, fd, indent=4)
+			json.dump(self, fd, indent=4)
 
 
-	def get_inbox(self, domain):
+	def get_inbox(self, domain, fail=False):
 		if domain.startswith('http'):
 			domain = urlparse(domain).hostname
 
-		for inbox in self.inboxes:
-			if domain == urlparse(inbox).hostname:
-				return inbox
+		if domain not in self['relay-list']:
+			if fail:
+				raise KeyError(domain)
+
+			return
+
+		return self['relay-list'][domain]
 
 
-	def add_inbox(self, inbox):
-		assert inbox.startswith('https')
-		assert not self.get_inbox(inbox)
+	def add_inbox(self, inbox, followid=None, fail=False):
+		assert inbox.startswith('https'), 'Inbox must be a url'
+		domain = urlparse(inbox).hostname
 
-		self.data['relay-list'].append(inbox)
+		if self.get_inbox(domain):
+			if fail:
+				raise KeyError(domain)
+
+			return False
+
+		self['relay-list'][domain] = {
+			'domain': domain,
+			'inbox': inbox,
+			'followid': followid
+		}
+
+		logging.verbose(f'Added inbox to database: {inbox}')
+		return self['relay-list'][domain]
 
 
-	def del_inbox(self, inbox_url):
-		inbox = self.get_inbox(inbox_url)
+	def del_inbox(self, domain, followid=None, fail=False):
+		data = self.get_inbox(domain, fail=True)
 
-		if not inbox:
-			raise KeyError(inbox_url)
+		if not data['followid'] or not followid or data['followid'] == followid:
+			del self['relay-list'][data['domain']]
+			logging.verbose(f'Removed inbox from database: {data["inbox"]}')
+			return True
 
-		self.data['relay-list'].remove(inbox)
+		if fail:
+			raise ValueError('Follow IDs do not match')
+
+		logging.debug(f'Follow ID does not match: db = {data["followid"]}, object = {followid}')
+		return False
+
+
+	def set_followid(self, domain, followid):
+		data = self.get_inbox(domain, fail=True)
+		data['followid'] = followid

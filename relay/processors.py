@@ -60,11 +60,13 @@ async def handle_follow(actor, data, request):
 	database = app['database']
 
 	inbox = misc.get_actor_inbox(actor)
+	dbinbox = database.get_inbox(inbox)
 
-	if inbox not in database.inboxes:
-		database.add_inbox(inbox)
+	if not database.add_inbox(inbox, data['id']):
+		database.set_followid(inbox, data['id'])
 		database.save()
-		asyncio.ensure_future(misc.follow_remote_actor(actor['id']))
+
+	asyncio.ensure_future(misc.follow_remote_actor(actor['id']))
 
 	message = {
 		"@context": "https://www.w3.org/ns/activitystreams",
@@ -92,12 +94,11 @@ async def handle_undo(actor, data, request):
 		return await handle_forward(actor, data, request)
 
 	database = app['database']
-	inbox = database.get_inbox(actor['id'])
+	objectid = misc.distill_object_id(data)
 
-	if not inbox:
+	if not database.del_inbox(actor['id'], objectid):
 		return
 
-	database.del_inbox(inbox)
 	database.save()
 
 	await misc.unfollow_remote_actor(actor['id'])

@@ -255,6 +255,12 @@ async def request(uri, data=None, force=False, sign_headers=True, activity=True)
 		headers.update(signing_headers)
 
 	try:
+		if data:
+			logging.verbose(f'Sending "{action}" to inbox: {uri}')
+
+		else:
+			logging.verbose(f'Sending GET request to url: {uri}')
+
 		async with ClientSession(trace_configs=http_debug()) as session, app['semaphore']:
 			async with session.request(method, uri, headers=headers, data=data) as resp:
 				## aiohttp has been known to leak if the response hasn't been read,

@@ -37,7 +37,7 @@ a:hover {{ color: #8AF; }}
 <p>You may subscribe to this relay with the address: <a href="https://{host}/actor">https://{host}/actor</a></p>
 <p>To host your own relay, you may download the code at this address: <a href="https://git.pleroma.social/pleroma/relay">https://git.pleroma.social/pleroma/relay</a></p>
 <br><p>List of {count} registered instances:<br>{targets}</p>
-</body></html>""".format(host=request.host, note=app['config'].note, targets=targets, count=len(app['database'].inboxes))
+</body></html>""".format(host=request.host, note=app['config'].note, targets=targets, count=len(app['database'].hostnames))
 
 	return Response(
 		status = 200,
@@ -89,11 +89,11 @@ async def inbox(request):
 		actor_id = data['actor']
 		actor_domain = urlparse(actor_id).hostname
 
+	## reject if there is no actor in the message
 	except KeyError:
 		logging.verbose('actor not in data')
 		raise HTTPUnauthorized(body='no actor in message')
 
-	## reject if there is no actor in the message
 	except:
 		traceback.print_exc()
 		logging.verbose('Failed to parse inbox message')

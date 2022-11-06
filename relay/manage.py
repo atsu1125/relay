@@ -100,14 +100,12 @@ def cli_inbox_unfollow(actor):
 	if not actor.startswith('http'):
 		actor = f'https://{actor}/actor'
 
-	if not database.get_inbox(actor):
-		return click.echo(f'Error: Not following actor: {actor}')
+	if database.del_inbox(actor):
+		database.save()
+		run_in_loop(misc.unfollow_remote_actor, actor)
+		return click.echo(f'Sent unfollow message to: {actor}')
 
-	database.del_inbox(actor)
-	database.save()
-
-	run_in_loop(misc.unfollow_remote_actor, actor)
-	click.echo(f'Sent unfollow message to: {actor}')
+	return click.echo(f'Error: Not following actor: {actor}')
 
 
 @cli_inbox.command('add')
@@ -121,17 +119,14 @@ def cli_inbox_add(inbox):
 	if not inbox.startswith('http'):
 		inbox = f'https://{inbox}/inbox'
 
-	if database.get_inbox(inbox):
-		click.echo(f'Error: Inbox already in database: {inbox}')
-		return
-
 	if config.is_banned(inbox):
-		click.echo(f'Error: Refusing to add banned inbox: {inbox}')
-		return
+		return click.echo(f'Error: Refusing to add banned inbox: {inbox}')
 
-	database.add_inbox(inbox)
-	database.save()
-	click.echo(f'Added inbox to the database: {inbox}')
+	if database.add_inbox(inbox):
+		database.save()
+		return click.echo(f'Added inbox to the database: {inbox}')
+
+	click.echo(f'Error: Inbox already in database: {inbox}')
 
 
 @cli_inbox.command('remove')
@@ -140,14 +135,17 @@ def cli_inbox_remove(inbox):
 	'Remove an inbox from the database'
 
 	database = app['database']
-	dbinbox = database.get_inbox(inbox)
 
-	if not dbinbox:
+	try:
+		dbinbox = database.get_inbox(inbox, fail=True)
+
+	except KeyError:
 		click.echo(f'Error: Inbox does not exist: {inbox}')
 		return
 
-	database.del_inbox(dbinbox)
+	database.del_inbox(dbinbox['domain'])
 	database.save()
+
 	click.echo(f'Removed inbox from the database: {inbox}')
 
 
@@ -174,13 +172,14 @@ def cli_instance_ban(target):
 
 	config = app['config']
 	database = app['database']
-	inbox = database.get_inbox(target)
+
+	if target.startswith('http'):
+		target = urlparse(target).hostname
 
 	if config.ban_instance(target):
 		config.save()
 
-		if inbox:
-			database.del_inbox(inbox)
+		if database.del_inbox(target):
 			database.save()
 
 		click.echo(f'Banned instance: {target}')
@@ -321,16 +320,15 @@ def cli_whitelist_remove(instance):
 
 	config = app['config']
 	database = app['database']
-	inbox = database.get_inbox(instance)
 
 	if not config.del_whitelist(instance):
 		return click.echo(f'Instance not in the whitelist: {instance}')
 
 	config.save()
 
-	if inbox and config.whitelist_enabled:
-		database.del_inbox(inbox)
-		database.save()
+	if config.whitelist_enabled:
+		if database.del_inbox(inbox):
+			database.save()
 
 	click.echo(f'Removed instance from the whitelist: {instance}')
 
