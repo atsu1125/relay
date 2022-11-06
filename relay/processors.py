@@ -38,7 +38,7 @@ async def handle_relay(actor, data, request):
 
 async def handle_forward(actor, data, request):
 	cache = app['cache'].objects
-	object_id = misc.distill_object_id(data)
+	object_id = data['id']
 
 	if object_id in cache:
 		logging.verbose(f'already forwarded {object_id}')
