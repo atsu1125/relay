@@ -87,13 +87,9 @@ async def handle_follow(actor, data, request):
 
 
 async def handle_undo(actor, data, request):
-	## If the activity being undone is an Announce, forward it insteead
-	if data['object']['type'] == 'Announce':
-		await handle_forward(actor, data, request)
-		return
-
-	elif data['object']['type'] != 'Follow':
-		return
+	## If the object is not a Follow, forward it
+	if data['object']['type'] != 'Follow':
+		return await handle_forward(actor, data, request)
 
 	database = app['database']
 	inbox = database.get_inbox(actor['id'])
