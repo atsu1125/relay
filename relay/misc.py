@@ -222,16 +222,14 @@ async def request(uri, data=None, force=False, sign_headers=True, activity=True)
 
 	url = urlparse(uri)
 	method = 'POST' if data else 'GET'
-	headers = {'User-Agent': 'ActivityRelay'}
-	mimetype = 'application/activity+json' if activity else 'application/json'
+	action = data.get('type') if data else None
+	headers = {
+		'Accept': 'application/activity+json, application/json;q=0.9',
+		'User-Agent': 'ActivityRelay',
+	}
 
-	## Set the content type for a POST
-	if data and 'Content-Type' not in headers:
-		headers['Content-Type'] = mimetype
-
-	## Set the accepted content type for a GET
-	elif not data and 'Accept' not in headers:
-		headers['Accept'] = mimetype
+	if data:
+		headers['Content-Type'] = 'application/activity+json' if activity else 'application/json'
 
 	if sign_headers:
 		signing_headers = {
@@ -243,7 +241,6 @@ async def request(uri, data=None, force=False, sign_headers=True, activity=True)
 		if data:
 			assert isinstance(data, dict)
 
-			action = data.get('type')
 			data = json.dumps(data)
 			signing_headers.update({
 				'Digest': f'SHA-256={generate_body_digest(data)}',
@@ -258,26 +255,24 @@ async def request(uri, data=None, force=False, sign_headers=True, activity=True)
 		headers.update(signing_headers)
 
 	try:
-		# json_serializer=DotDict maybe?
 		async with ClientSession(trace_configs=http_debug()) as session, app['semaphore']:
 			async with session.request(method, uri, headers=headers, data=data) as resp:
 				## aiohttp has been known to leak if the response hasn't been read,
 				## so we're just gonna read the request no matter what
-				resp_data = await resp.read()
-				resp_payload = json.loads(resp_data.decode('utf-8'))
+				resp_data = await resp.json()
 
 				if resp.status not in [200, 202]:
-					if not data:
-						logging.verbose(f'Received error when requesting {uri}: {resp.status} {resp_payload}')
+					if not resp_data:
+						logging.verbose(f'Received error when requesting {uri}: {resp.status} {resp_data}')
 						return
 
-					logging.verbose(f'Received error when sending {action} to {uri}: {resp.status} {resp_payload}')
+					logging.verbose(f'Received error when sending {action} to {uri}: {resp.status} {resp_data}')
 					return
 
-				logging.debug(f'{uri} >> resp {resp_payload}')
+				logging.debug(f'{uri} >> resp {resp_data}')
 
-				app['cache'].json[uri] = resp_payload
-				return resp_payload
+				app['cache'].json[uri] = resp_data
+				return resp_data
 
 	except JSONDecodeError:
 		return
