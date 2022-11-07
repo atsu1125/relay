@@ -81,9 +81,7 @@ def cli_inbox_follow(actor):
 	if not actor_data:
 		return click.echo(f'Error: Failed to fetch actor: {actor}')
 
-	inbox = misc.get_actor_inbox(actor_data)
-
-	database.add_inbox(inbox)
+	database.add_inbox(actor_data.shared_inbox)
 	database.save()
 
 	run_in_loop(misc.follow_remote_actor, actor)

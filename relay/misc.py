@@ -4,6 +4,7 @@ import json
 import logging
 import socket
 import traceback
+import uuid
 
 from Crypto.Hash import SHA, SHA256, SHA512
 from Crypto.PublicKey import RSA
@@ -57,27 +58,12 @@ def create_signature_header(headers):
 	return ','.join(chunks)
 
 
-def distill_object_id(activity):
-	logging.debug(f'>> determining object ID for {activity["object"]}')
-
-	try:
-		return activity['object']['id']
-
-	except TypeError:
-		return activity['object']
-
-
 def distill_inboxes(actor, object_id):
 	database = app['database']
-	origin_hostname = urlparse(object_id).hostname
-	actor_inbox = get_actor_inbox(actor)
-	targets = []
 
 	for inbox in database.inboxes:
-		if inbox != actor_inbox or urlparse(inbox).hostname != origin_hostname:
-			targets.append(inbox)
-
-	return targets
+		if inbox != actor.shared_inbox or urlparse(inbox).hostname != urlparse(object_id).hostname:
+			yield inbox
 
 
 def generate_body_digest(body):
@@ -91,10 +77,6 @@ def generate_body_digest(body):
 	app['cache'].digests[body] = bodyhash
 
 	return bodyhash
-
-
-def get_actor_inbox(actor):
-	return actor.get('endpoints', {}).get('sharedInbox', actor['inbox'])
 
 
 def sign_signing_string(sigstring, key):
@@ -162,13 +144,10 @@ async def follow_remote_actor(actor_uri):
 	config = app['config']
 
 	actor = await request(actor_uri)
-	inbox = get_actor_inbox(actor)
 
 	if not actor:
 		logging.error(f'failed to fetch actor at: {actor_uri}')
 		return
-
-	logging.verbose(f'sending follow request: {actor_uri}')
 
 	message = {
 		"@context": "https://www.w3.org/ns/activitystreams",
@@ -179,7 +158,8 @@ async def follow_remote_actor(actor_uri):
 		"actor": f"https://{config.host}/actor"
 	}
 
-	await request(inbox, message)
+	logging.verbose(f'sending follow request: {actor_uri}')
+	await request(actor.shared_inbox, message)
 
 
 async def unfollow_remote_actor(actor_uri):
@@ -190,9 +170,6 @@ async def unfollow_remote_actor(actor_uri):
 	if not actor:
 		logging.error(f'failed to fetch actor: {actor_uri}')
 		return
-
-	inbox = get_actor_inbox(actor)
-	logging.verbose(f'sending unfollow request to inbox: {inbox}')
 
 	message = {
 		"@context": "https://www.w3.org/ns/activitystreams",
@@ -208,7 +185,8 @@ async def unfollow_remote_actor(actor_uri):
 		"actor": f"https://{config.host}/actor"
 	}
 
-	await request(inbox, message)
+	logging.verbose(f'sending unfollow request to inbox: {actor.shared_inbox}')
+	await request(actor.shared_inbox, message)
 
 
 async def request(uri, data=None, force=False, sign_headers=True, activity=True):
@@ -265,15 +243,27 @@ async def request(uri, data=None, force=False, sign_headers=True, activity=True)
 			async with session.request(method, uri, headers=headers, data=data) as resp:
 				## aiohttp has been known to leak if the response hasn't been read,
 				## so we're just gonna read the request no matter what
-				resp_data = await resp.json()
+				resp_data = await resp.read()
 
-				if resp.status not in [200, 202]:
-					if not resp_data:
-						logging.verbose(f'Received error when requesting {uri}: {resp.status} {resp_data}')
-						return
-
-					logging.verbose(f'Received error when sending {action} to {uri}: {resp.status} {resp_data}')
+				## Not expecting a response, so just return
+				if resp.status == 202:
 					return
+
+				elif resp.status != 200:
+					if not resp_data:
+						return logging.verbose(f'Received error when requesting {uri}: {resp.status} {resp_data}')
+
+					return logging.verbose(f'Received error when sending {action} to {uri}: {resp.status} {resp_data}')
+
+				if resp.content_type == 'application/activity+json':
+					resp_data = await resp.json(loads=Message.new_from_json)
+
+				elif resp.content_type == 'application/json':
+					resp_data = await resp.json(loads=DotDict.new_from_json)
+
+				else:
+					logging.verbose(f'Invalid Content-Type for "{url}": {resp.content_type}')
+					return logging.debug(f'Response: {resp_data}')
 
 				logging.debug(f'{uri} >> resp {resp_data}')
 
@@ -354,8 +344,127 @@ class DotDict(dict):
 
 	@classmethod
 	def new_from_json(cls, data):
-		return cls(json.loads(data))
+		if not data:
+			raise JSONDecodeError('Empty body', data, 1)
+
+		try:
+			return cls(json.loads(data))
+
+		except ValueError:
+			raise JSONDecodeError('Invalid body', data, 1)
 
 
 	def to_json(self, indent=None):
 		return json.dumps(self, indent=indent)
+
+
+class Message(DotDict):
+	@classmethod
+	def new_actor(cls, host, pubkey, description=None):
+		return cls({
+			'@context': 'https://www.w3.org/ns/activitystreams',
+			'id': f'https://{host}/actor',
+			'type': 'Application',
+			'preferredUsername': 'relay',
+			'name': 'ActivityRelay',
+			'summary': description or 'ActivityRelay bot',
+			'followers': f'https://{host}/followers',
+			'following': f'https://{host}/following',
+			'inbox': f'https://{host}/inbox',
+			'url': f'https://{host}/inbox',
+			'endpoints': {
+				'sharedInbox': f'https://{host}/inbox'
+			},
+			'publicKey': {
+				'id': f'https://{host}/actor#main-key',
+				'owner': f'https://{host}/actor',
+				'publicKeyPem': pubkey
+			}
+		})
+
+
+	@classmethod
+	def new_announce(cls, host, object):
+		return cls({
+			'@context': 'https://www.w3.org/ns/activitystreams',
+			'id': f'https://{host}/activities/{uuid.uuid4()}',
+			'type': 'Announce',
+			'to': [f'https://{host}/followers'],
+			'actor': f'https://{host}/actor',
+			'object': object
+		})
+
+
+	@classmethod
+	def new_follow(cls, host, actor):
+		return cls({
+			'@context': 'https://www.w3.org/ns/activitystreams',
+			'type': 'Follow',
+			'to': [actor],
+			'object': actor,
+			'id': f'https://{host}/activities/{uuid.uuid4()}',
+			'actor': f'https://{host}/actor'
+		})
+
+
+	@classmethod
+	def new_unfollow(cls, host, actor, follow):
+		return cls({
+			'@context': 'https://www.w3.org/ns/activitystreams',
+			'id': f'https://{host}/activities/{uuid.uuid4()}',
+			'type': 'Undo',
+			'to': [actor],
+			'actor': f'https://{host}/actor',
+			'object': follow
+		})
+
+
+	@classmethod
+	def new_response(cls, host, actor, followid, accept):
+		return cls({
+			'@context': 'https://www.w3.org/ns/activitystreams',
+			'id': f'https://{host}/activities/{uuid.uuid4()}',
+			'type': 'Accept' if accept else 'Reject',
+			'to': [actor],
+			'actor': f'https://{host}/actor',
+			'object': {
+				'id': followid,
+				'type': 'Follow',
+				'object': f'https://{host}/actor',
+				'actor': actor
+			}
+		})
+
+
+	# misc properties
+	@property
+	def domain(self):
+		return urlparse(self.id).hostname
+
+
+	# actor properties
+	@property
+	def pubkey(self):
+		return self.publicKey.publicKeyPem
+
+
+	@property
+	def shared_inbox(self):
+		return self.get('endpoints', {}).get('sharedInbox', self.inbox)
+
+
+	# activity properties
+	@property
+	def actorid(self):
+		if isinstance(self.actor, dict):
+			return self.actor.id
+
+		return self.actor
+
+
+	@property
+	def objectid(self):
+		if isinstance(self.object, dict):
+			return self.object.id
+
+		return self.object

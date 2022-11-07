@@ -3,10 +3,10 @@ import subprocess
 import traceback
 
 from aiohttp.web import HTTPForbidden, HTTPUnauthorized, Response, json_response
-from urllib.parse import urlparse
 
 from . import __version__, app, misc
 from .http_debug import STATS
+from .misc import Message
 from .processors import run_processor
 
 
@@ -48,28 +48,13 @@ a:hover {{ color: #8AF; }}
 
 
 async def actor(request):
+	config = app['config']
 	database = app['database']
 
-	data = {
-		"@context": "https://www.w3.org/ns/activitystreams",
-		"endpoints": {
-			"sharedInbox": f"https://{request.host}/inbox"
-		},
-		"followers": f"https://{request.host}/followers",
-		"following": f"https://{request.host}/following",
-		"inbox": f"https://{request.host}/inbox",
-		"name": "ActivityRelay",
-		"type": "Application",
-		"id": f"https://{request.host}/actor",
-		"publicKey": {
-			"id": f"https://{request.host}/actor#main-key",
-			"owner": f"https://{request.host}/actor",
-			"publicKeyPem": database.pubkey
-		},
-		"summary": "ActivityRelay bot",
-		"preferredUsername": "relay",
-		"url": f"https://{request.host}/actor"
-	}
+	data = Message.new_actor(
+		host = config.host, 
+		pubkey = database.pubkey
+	)
 
 	return json_response(data, content_type='application/activity+json')
 
@@ -85,9 +70,10 @@ async def inbox(request):
 
 	## read message and get actor id and domain
 	try:
-		data = await request.json()
-		actor_id = data['actor']
-		actor_domain = urlparse(actor_id).hostname
+		data = await request.json(loads=Message.new_from_json)
+
+		if 'actor' not in data:
+			raise KeyError('actor')
 
 	## reject if there is no actor in the message
 	except KeyError:
@@ -99,44 +85,44 @@ async def inbox(request):
 		logging.verbose('Failed to parse inbox message')
 		raise HTTPUnauthorized(body='failed to parse message')
 
-	actor = await misc.request(actor_id)
+	actor = await misc.request(data.actorid)
 
 	## reject if actor is empty
 	if not actor:
-		logging.verbose(f'Failed to fetch actor: {actor_id}')
+		logging.verbose(f'Failed to fetch actor: {data.actorid}')
 		raise HTTPUnauthorized('failed to fetch actor')
 
 	## reject if the actor isn't whitelisted while the whiltelist is enabled
-	elif config.whitelist_enabled and not config.is_whitelisted(actor_id):
-		logging.verbose(f'Rejected actor for not being in the whitelist: {actor_id}')
+	elif config.whitelist_enabled and not config.is_whitelisted(data.domain):
+		logging.verbose(f'Rejected actor for not being in the whitelist: {data.actorid}')
 		raise HTTPForbidden(body='access denied')
 
 	## reject if actor is banned
-	if app['config'].is_banned(actor_id):
-		logging.verbose(f'Ignored request from banned actor: {actor_id}')
+	if app['config'].is_banned(data.domain):
+		logging.verbose(f'Ignored request from banned actor: {data.actorid}')
 		raise HTTPForbidden(body='access denied')
 
 	## reject if software used by actor is banned
 	if len(config.blocked_software):
-		software = await misc.fetch_nodeinfo(actor_domain)
+		software = await misc.fetch_nodeinfo(data.domain)
 
 		if config.is_banned_software(software):
 			logging.verbose(f'Rejected actor for using specific software: {software}')
 			raise HTTPForbidden(body='access denied')
 
 	## reject if the signature is invalid
-	if not (await misc.validate_signature(actor_id, request)):
-		logging.verbose(f'signature validation failed for: {actor_id}')
+	if not (await misc.validate_signature(data.actorid, request)):
+		logging.verbose(f'signature validation failed for: {data.actorid}')
 		raise HTTPUnauthorized(body='signature check failed, signature did not match key')
 
 	## reject if activity type isn't 'Follow' and the actor isn't following
-	if data['type'] != 'Follow' and not database.get_inbox(actor_domain):
-		logging.verbose(f'Rejected actor for trying to post while not following: {actor_id}')
+	if data['type'] != 'Follow' and not database.get_inbox(data.domain):
+		logging.verbose(f'Rejected actor for trying to post while not following: {data.actorid}')
 		raise HTTPUnauthorized(body='access denied')
 
 	logging.debug(f">> payload {data}")
 
-	await run_processor(request, data, actor)
+	await run_processor(request, actor, data, software)
 	return Response(body=b'{}', content_type='application/activity+json')
 
 
