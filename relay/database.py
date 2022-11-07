@@ -138,7 +138,13 @@ class RelayDatabase(dict):
 
 
 	def del_inbox(self, domain, followid=None, fail=False):
-		data = self.get_inbox(domain, fail=True)
+		data = self.get_inbox(domain, fail=False)
+
+		if not data:
+			if fail:
+				raise KeyError(domain)
+
+			return False
 
 		if not data['followid'] or not followid or data['followid'] == followid:
 			del self['relay-list'][data['domain']]

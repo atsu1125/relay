@@ -4,6 +4,8 @@ import click
 import logging
 import platform
 
+from urllib.parse import urlparse
+
 from . import misc, __version__
 from .application import Application
 from .config import relay_software_names
@@ -54,20 +56,27 @@ def cli_inbox_follow(actor):
 		return click.echo(f'Error: Refusing to follow banned actor: {actor}')
 
 	if not actor.startswith('http'):
+		domain = actor
 		actor = f'https://{actor}/actor'
 
-	if app.database.get_inbox(actor):
-		return click.echo(f'Error: Already following actor: {actor}')
+	else:
+		domain = urlparse(actor).hostname
 
-	actor_data = asyncio.run(misc.request(actor, sign_headers=True))
 
-	if not actor_data:
-		return click.echo(f'Error: Failed to fetch actor: {actor}')
+	try:
+		inbox_data = app.database['relay-list'][domain]
+		inbox = inbox_data['inbox']
 
-	app.database.add_inbox(actor_data.shared_inbox)
-	app.database.save()
+	except KeyError:
+		actor_data = asyncio.run(misc.request(actor))
+		inbox = actor_data.shared_inbox
 
-	asyncio.run(misc.follow_remote_actor(actor))
+	message = misc.Message.new_follow(
+		host = app.config.host,
+		actor = actor.id
+	)
+
+	asyncio.run(misc.request(inbox, message))
 	click.echo(f'Sent follow message to actor: {actor}')
 
 
@@ -77,14 +86,36 @@ def cli_inbox_unfollow(actor):
 	'Unfollow an actor (Relay must be running)'
 
 	if not actor.startswith('http'):
+		domain = actor
 		actor = f'https://{actor}/actor'
 
-	if app.database.del_inbox(actor):
-		app.database.save()
-		asyncio.run(misc.unfollow_remote_actor(actor))
-		return click.echo(f'Sent unfollow message to: {actor}')
+	else:
+		domain = urlparse(actor).hostname
 
-	return click.echo(f'Error: Not following actor: {actor}')
+	try:
+		inbox_data = app.database['relay-list'][domain]
+		inbox = inbox_data['inbox']
+		message = misc.Message.new_unfollow(
+			host = app.config.host,
+			actor = actor,
+			follow = inbox_data['followid']
+		)
+
+	except KeyError:
+		actor_data = asyncio.run(misc.request(actor))
+		inbox = actor_data.shared_inbox
+		message = misc.Message.new_unfollow(
+			host = app.config.host,
+			actor = actor,
+			follow = {
+				'type': 'Follow',
+				'object': actor,
+				'actor': f'https://{app.config.host}/actor'
+			}
+		)
+
+	asyncio.run(misc.request(inbox, message))
+	click.echo(f'Sent unfollow message to: {actor}')
 
 
 @cli_inbox.command('add')

@@ -59,10 +59,10 @@ def create_signature_header(headers):
 	sigstring = build_signing_string(headers, used_headers)
 
 	sig = {
-		'keyId': app['config'].keyid,
+		'keyId': app.config.keyid,
 		'algorithm': 'rsa-sha256',
 		'headers': ' '.join(used_headers),
-		'signature': sign_signing_string(sigstring, app['database'].PRIVKEY)
+		'signature': sign_signing_string(sigstring, app.database.PRIVKEY)
 	}
 
 	chunks = ['{}="{}"'.format(k, v) for k, v in sig.items()]
@@ -70,22 +70,20 @@ def create_signature_header(headers):
 
 
 def distill_inboxes(actor, object_id):
-	database = app['database']
-
-	for inbox in database.inboxes:
+	for inbox in app.database.inboxes:
 		if inbox != actor.shared_inbox and urlparse(inbox).hostname != urlparse(object_id).hostname:
 			yield inbox
 
 
 def generate_body_digest(body):
-	bodyhash = app['cache'].digests.get(body)
+	bodyhash = app.cache.digests.get(body)
 
 	if bodyhash:
 		return bodyhash
 
 	h = SHA256.new(body.encode('utf-8'))
 	bodyhash = base64.b64encode(h.digest()).decode('utf-8')
-	app['cache'].digests[body] = bodyhash
+	app.cache.digests[body] = bodyhash
 
 	return bodyhash
 
@@ -155,61 +153,11 @@ async def fetch_nodeinfo(domain):
 		return False
 
 
-## todo: remove follow_remote_actor and unfollow_remote_actor
-async def follow_remote_actor(actor_uri):
-	config = app['config']
-
-	actor = await request(actor_uri)
-
-	if not actor:
-		logging.error(f'failed to fetch actor at: {actor_uri}')
-		return
-
-	message = {
-		"@context": "https://www.w3.org/ns/activitystreams",
-		"type": "Follow",
-		"to": [actor['id']],
-		"object": actor['id'],
-		"id": f"https://{config.host}/activities/{uuid4()}",
-		"actor": f"https://{config.host}/actor"
-	}
-
-	logging.verbose(f'sending follow request: {actor_uri}')
-	await request(actor.shared_inbox, message)
-
-
-async def unfollow_remote_actor(actor_uri):
-	config = app['config']
-
-	actor = await request(actor_uri)
-
-	if not actor:
-		logging.error(f'failed to fetch actor: {actor_uri}')
-		return
-
-	message = {
-		"@context": "https://www.w3.org/ns/activitystreams",
-		"type": "Undo",
-		"to": [actor_uri],
-		"object": {
-			"type": "Follow",
-			"object": actor_uri,
-			"actor": actor_uri,
-			"id": f"https://{config.host}/activities/{uuid4()}"
-		},
-		"id": f"https://{config.host}/activities/{uuid4()}",
-		"actor": f"https://{config.host}/actor"
-	}
-
-	logging.verbose(f'sending unfollow request to inbox: {actor.shared_inbox}')
-	await request(actor.shared_inbox, message)
-
-
 async def request(uri, data=None, force=False, sign_headers=True, activity=True):
 	## If a get request and not force, try to use the cache first
 	if not data and not force:
 		try:
-			return app['cache'].json[uri]
+			return app.cache.json[uri]
 
 		except KeyError:
 			pass
@@ -255,7 +203,7 @@ async def request(uri, data=None, force=False, sign_headers=True, activity=True)
 		else:
 			logging.verbose(f'Sending GET request to url: {uri}')
 
-		async with ClientSession(trace_configs=http_debug()) as session, app['semaphore']:
+		async with ClientSession(trace_configs=http_debug()) as session, app.semaphore:
 			async with session.request(method, uri, headers=headers, data=data) as resp:
 				## aiohttp has been known to leak if the response hasn't been read,
 				## so we're just gonna read the request no matter what
@@ -283,7 +231,7 @@ async def request(uri, data=None, force=False, sign_headers=True, activity=True)
 
 				logging.debug(f'{uri} >> resp {resp_data}')
 
-				app['cache'].json[uri] = resp_data
+				app.cache.json[uri] = resp_data
 				return resp_data
 
 	except JSONDecodeError:
