@@ -140,6 +140,7 @@ async def fetch_nodeinfo(domain):
 		return False
 
 
+## todo: remove follow_remote_actor and unfollow_remote_actor
 async def follow_remote_actor(actor_uri):
 	config = app['config']
 

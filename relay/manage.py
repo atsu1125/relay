@@ -76,7 +76,7 @@ def cli_inbox_follow(actor):
 	if database.get_inbox(actor):
 		return click.echo(f'Error: Already following actor: {actor}')
 
-	actor_data = run_in_loop(misc.request, actor, sign_headers=True)
+	actor_data = asyncio.run(misc.request(actor, sign_headers=True))
 
 	if not actor_data:
 		return click.echo(f'Error: Failed to fetch actor: {actor}')
@@ -84,7 +84,7 @@ def cli_inbox_follow(actor):
 	database.add_inbox(actor_data.shared_inbox)
 	database.save()
 
-	run_in_loop(misc.follow_remote_actor, actor)
+	asyncio.run(misc.follow_remote_actor(actor))
 	click.echo(f'Sent follow message to actor: {actor}')
 
 
@@ -100,7 +100,7 @@ def cli_inbox_unfollow(actor):
 
 	if database.del_inbox(actor):
 		database.save()
-		run_in_loop(misc.unfollow_remote_actor, actor)
+		asyncio.run(misc.unfollow_remote_actor(actor))
 		return click.echo(f'Sent unfollow message to: {actor}')
 
 	return click.echo(f'Error: Not following actor: {actor}')
@@ -236,7 +236,7 @@ def cli_software_ban(name, fetch_nodeinfo):
 		return click.echo('Banned all relay software')
 
 	if fetch_nodeinfo:
-		software = run_in_loop(fetch_nodeinfo, name)
+		software = asyncio.run(misc.fetch_nodeinfo(name))
 
 		if not software:
 			click.echo(f'Failed to fetch software name from domain: {name}')
@@ -268,7 +268,7 @@ def cli_software_unban(name, fetch_nodeinfo):
 		return click.echo('Unbanned all relay software')
 
 	if fetch_nodeinfo:
-		software = run_in_loop(fetch_nodeinfo, name)
+		software = asyncio.run(misc.fetch_nodeinfo(name))
 
 		if not software:
 			click.echo(f'Failed to fetch software name from domain: {name}')
@@ -399,11 +399,6 @@ def relay_run():
 	asyncio.set_event_loop(loop)
 	asyncio.ensure_future(handle_start_webserver(), loop=loop)
 	loop.run_forever()
-
-
-def run_in_loop(func, *args, **kwargs):
-	loop = asyncio.new_event_loop()
-	return loop.run_until_complete(func(*args, **kwargs))
 
 
 async def handle_start_webserver():
