@@ -2,12 +2,23 @@ import logging
 import subprocess
 import traceback
 
-from aiohttp.web import HTTPForbidden, HTTPUnauthorized, Response, json_response
+from aiohttp.web import HTTPForbidden, HTTPUnauthorized, Response, json_response, route
 
-from . import __version__, app, misc
+from . import __version__, misc
 from .http_debug import STATS
 from .misc import Message
 from .processors import run_processor
+
+
+routes = []
+
+
+def register_route(method, path):
+	def wrapper(func):
+		routes.append([method, path, func])
+		return func
+
+	return wrapper
 
 
 try:
@@ -18,9 +29,14 @@ except:
 	version = __version__
 
 
+@register_route('GET', '/')
 async def home(request):
-	targets = '<br>'.join(app['database'].hostnames)
-	text = """
+	targets = '<br>'.join(request.app.database.hostnames)
+	note = request.app.config.note
+	count = len(request.app.database.hostnames)
+	host = request.app.config.host
+
+	text = f"""
 <html><head>
 <title>ActivityPub Relay at {host}</title>
 <style>
@@ -37,7 +53,7 @@ a:hover {{ color: #8AF; }}
 <p>You may subscribe to this relay with the address: <a href="https://{host}/actor">https://{host}/actor</a></p>
 <p>To host your own relay, you may download the code at this address: <a href="https://git.pleroma.social/pleroma/relay">https://git.pleroma.social/pleroma/relay</a></p>
 <br><p>List of {count} registered instances:<br>{targets}</p>
-</body></html>""".format(host=request.host, note=app['config'].note, targets=targets, count=len(app['database'].hostnames))
+</body></html>"""
 
 	return Response(
 		status = 200,
@@ -47,21 +63,22 @@ a:hover {{ color: #8AF; }}
 	)
 
 
+@register_route('GET', '/inbox')
+@register_route('GET', '/actor')
 async def actor(request):
-	config = app['config']
-	database = app['database']
-
 	data = Message.new_actor(
-		host = config.host, 
-		pubkey = database.pubkey
+		host = request.app.config.host, 
+		pubkey = request.app.database.pubkey
 	)
 
 	return json_response(data, content_type='application/activity+json')
 
 
+@register_route('POST', '/inbox')
+@register_route('POST', '/actor')
 async def inbox(request):
-	config = app['config']
-	database = app['database']
+	config = request.app.config
+	database = request.app.database
 
 	## reject if missing signature header
 	if 'signature' not in request.headers:
@@ -98,7 +115,7 @@ async def inbox(request):
 		raise HTTPForbidden(body='access denied')
 
 	## reject if actor is banned
-	if app['config'].is_banned(data.domain):
+	if request.app['config'].is_banned(data.domain):
 		logging.verbose(f'Ignored request from banned actor: {data.actorid}')
 		raise HTTPForbidden(body='access denied')
 
@@ -126,25 +143,26 @@ async def inbox(request):
 	return Response(body=b'{}', content_type='application/activity+json')
 
 
+@register_route('GET', '/.well-known/webfinger')
 async def webfinger(request):
-	config = app['config']
 	subject = request.query['resource']
 
-	if subject != f'acct:relay@{request.host}':
+	if subject != f'acct:relay@{request.app.config.host}':
 		return json_response({'error': 'user not found'}, status=404)
 
 	data = {
 		'subject': subject,
-		'aliases': [config.actor],
+		'aliases': [request.app.config.actor],
 		'links': [
-			{'href': config.actor, 'rel': 'self', 'type': 'application/activity+json'},
-			{'href': config.actor, 'rel': 'self', 'type': 'application/ld+json; profile=\"https://www.w3.org/ns/activitystreams\"'}
+			{'href': request.app.config.actor, 'rel': 'self', 'type': 'application/activity+json'},
+			{'href': request.app.config.actor, 'rel': 'self', 'type': 'application/ld+json; profile=\"https://www.w3.org/ns/activitystreams\"'}
 		]
 	}
 
 	return json_response(data)
 
 
+@register_route('GET', '/nodeinfo/2.0.json')
 async def nodeinfo_2_0(request):
 	data = {
 		# XXX - is this valid for a relay?
@@ -165,7 +183,7 @@ async def nodeinfo_2_0(request):
 			}
 		},
 		'metadata': {
-			'peers': app['database'].hostnames
+			'peers': request.app.database.hostnames
 		},
 		'version': '2.0'
 	}
@@ -173,17 +191,19 @@ async def nodeinfo_2_0(request):
 	return json_response(data)
 
 
+@register_route('GET', '/.well-known/nodeinfo')
 async def nodeinfo_wellknown(request):
 	data = {
 		'links': [
 			{
 				'rel': 'http://nodeinfo.diaspora.software/ns/schema/2.0',
-				'href': f'https://{request.host}/nodeinfo/2.0.json'
+				'href': f'https://{request.app.config.host}/nodeinfo/2.0.json'
 			}
 		]
 	}
 	return json_response(data)
 
 
+@register_route('GET', '/stats')
 async def stats(request):
     return json_response(STATS)

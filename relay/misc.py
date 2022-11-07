@@ -15,15 +15,20 @@ from json.decoder import JSONDecodeError
 from urllib.parse import urlparse
 from uuid import uuid4
 
-from . import app
 from .http_debug import http_debug
 
 
+app = None
 HASHES = {
 	'sha1': SHA,
 	'sha256': SHA256,
 	'sha512': SHA512
 }
+
+
+def set_app(new_app):
+	global app
+	app = new_app
 
 
 def build_signing_string(headers, used_headers):
@@ -62,7 +67,7 @@ def distill_inboxes(actor, object_id):
 	database = app['database']
 
 	for inbox in database.inboxes:
-		if inbox != actor.shared_inbox or urlparse(inbox).hostname != urlparse(object_id).hostname:
+		if inbox != actor.shared_inbox and urlparse(inbox).hostname != urlparse(object_id).hostname:
 			yield inbox
 
 

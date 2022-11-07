@@ -3,21 +3,18 @@ import logging
 
 from uuid import uuid4
 
-from . import app, misc
+from . import misc
 
 
 async def handle_relay(request, actor, data, software):
-	cache = app['cache'].objects
-	config = app['config']
-
-	if data.objectid in cache:
-		logging.verbose(f'already relayed {data.objectid} as {cache[data.objectid]}')
+	if data.objectid in request.app.cache.objects:
+		logging.verbose(f'already relayed {data.objectid}')
 		return
 
 	logging.verbose(f'Relaying post from {data.actorid}')
 
 	message = misc.Message.new_announce(
-		host = config.host,
+		host = request.app.config.host,
 		object = data.objectid
 	)
 
@@ -27,19 +24,16 @@ async def handle_relay(request, actor, data, software):
 	futures = [misc.request(inbox, data=message) for inbox in inboxes]
 
 	asyncio.ensure_future(asyncio.gather(*futures))
-	cache[data.objectid] = message.id
+	request.app.cache.objects[data.objectid] = message.id
 
 
 async def handle_forward(request, actor, data, software):
-	cache = app['cache'].objects
-	config = app['config']
-
-	if data.id in cache:
+	if data.id in request.app.cache.objects:
 		logging.verbose(f'already forwarded {data.id}')
 		return
 
 	message = misc.Message.new_announce(
-		host = config.host,
+		host = request.app.config.host,
 		object = data
 	)
 
@@ -50,22 +44,19 @@ async def handle_forward(request, actor, data, software):
 	futures = [misc.request(inbox, data=message) for inbox in inboxes]
 
 	asyncio.ensure_future(asyncio.gather(*futures))
-	cache[data.id] = message.id
+	request.app.cache.objects[data.id] = message.id
 
 
 async def handle_follow(request, actor, data, software):
-	config = app['config']
-	database = app['database']
+	if request.app.database.add_inbox(inbox, data.id):
+		request.app.database.set_followid(actor.id, data.id)
 
-	if database.add_inbox(inbox, data.id):
-		database.set_followid(actor.id, data.id)
-
-	database.save()
+	request.app.database.save()
 
 	await misc.request(
 		actor.shared_inbox,
 		misc.Message.new_response(
-			host = config.host,
+			host = request.app.config.host,
 			actor = actor.id,
 			followid = data.id,
 			accept = True
@@ -78,7 +69,7 @@ async def handle_follow(request, actor, data, software):
 		misc.request(
 			actor.shared_inbox,
 			misc.Message.new_follow(
-				host = config.host,
+				host = request.app.config.host,
 				actor = actor.id
 			)
 		)
@@ -89,15 +80,13 @@ async def handle_undo(request, actor, data, software):
 	if data['object']['type'] != 'Follow':
 		return await handle_forward(request, actor, data, software)
 
-	database = app['database']
-
-	if not database.del_inbox(actor.domain, data.id):
+	if not request.app.database.del_inbox(actor.domain, data.id):
 		return
 
-	database.save()
+	request.app.database.save()
 
 	message = misc.Message.new_unfollow(
-		host = config.host,
+		host = request.app.config.host,
 		actor = actor.id,
 		follow = data
 	)
