@@ -162,10 +162,10 @@ async def webfinger(request):
 	return json_response(data)
 
 
-@register_route('GET', '/nodeinfo/2.0.json')
+@register_route('GET', '/nodeinfo/{version:\d.\d\.json}')
 async def nodeinfo_2_0(request):
+	version = request.match_info['version'][:3]
 	data = {
-		# XXX - is this valid for a relay?
 		'openRegistrations': True,
 		'protocols': ['activitypub'],
 		'services': {
@@ -185,22 +185,22 @@ async def nodeinfo_2_0(request):
 		'metadata': {
 			'peers': request.app.database.hostnames
 		},
-		'version': '2.0'
+		'version': version
 	}
+
+	if version == '2.1':
+		data['software']['repository'] = 'https://git.pleroma.social/pleroma/relay'
 
 	return json_response(data)
 
 
 @register_route('GET', '/.well-known/nodeinfo')
 async def nodeinfo_wellknown(request):
-	data = {
-		'links': [
-			{
-				'rel': 'http://nodeinfo.diaspora.software/ns/schema/2.0',
-				'href': f'https://{request.app.config.host}/nodeinfo/2.0.json'
-			}
-		]
-	}
+	data = WKNodeinfo.new(
+		v20 = f'https://{request.app.config.host}/nodeinfo/2.0.json',
+		v21 = f'https://{request.app.config.host}/nodeinfo/2.1.json'
+	)
+
 	return json_response(data)
 
 

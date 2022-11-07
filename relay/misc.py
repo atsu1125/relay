@@ -19,10 +19,16 @@ from .http_debug import http_debug
 
 
 app = None
+
 HASHES = {
 	'sha1': SHA,
 	'sha256': SHA256,
 	'sha512': SHA512
+}
+
+NODEINFO_NS = {
+	'20': 'http://nodeinfo.diaspora.software/ns/schema/2.0',
+	'21': 'http://nodeinfo.diaspora.software/ns/schema/2.1'
 }
 
 
@@ -122,24 +128,28 @@ async def fetch_actor_key(actor):
 
 async def fetch_nodeinfo(domain):
 	nodeinfo_url = None
-
 	wk_nodeinfo = await request(f'https://{domain}/.well-known/nodeinfo', sign_headers=False, activity=False)
 
 	if not wk_nodeinfo:
 		return
 
-	for link in wk_nodeinfo.get('links', ''):
-		if link['rel'] == 'http://nodeinfo.diaspora.software/ns/schema/2.0':
-			nodeinfo_url = link['href']
-			break
+	wk_nodeinfo = WKNodeinfo(wk_nodeinfo)
+
+	for version in ['20', '21']:
+		try:
+			nodeinfo_url = wk_nodeinfo.get_url(version)
+
+		except KeyError:
+			pass
 
 	if not nodeinfo_url:
-		return
+		logging.verbose(f'Failed to fetch nodeinfo url for domain: {domain}')
+		return False
 
-	nodeinfo_data = await request(nodeinfo_url, sign_headers=False, activity=False)
+	nodeinfo = await request(nodeinfo_url, sign_headers=False, activity=False)
 
 	try:
-		return nodeinfo_data['software']['name']
+		return nodeinfo['software']['name']
 
 	except KeyError:
 		return False
@@ -474,3 +484,29 @@ class Message(DotDict):
 			return self.object.id
 
 		return self.object
+
+
+class WKNodeinfo(DotDict):
+	def __setitem__(self, key, value):
+		if key == 'links':
+			value = [DotDict(item) for item in value]
+
+		DotDict.__setitem__(self, key, value)
+
+
+	@classmethod
+	def new(cls, v20, v21):
+		return cls({
+			'links': [
+				{'rel': NODEINFO_NS['20'], 'href': v20},
+				{'rel': NODEINFO_NS['21'], 'href': v21}
+			]
+		})
+
+
+	def get_url(self, version='20'):
+		for item in self.links:
+			if item.rel == NODEINFO_NS[version]:
+				return item.href
+
+		raise KeyError(version)
