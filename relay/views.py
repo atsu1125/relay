@@ -6,7 +6,7 @@ from aiohttp.web import HTTPForbidden, HTTPUnauthorized, Response, json_response
 
 from . import __version__, misc
 from .http_debug import STATS
-from .misc import Message
+from .misc import Message, WKNodeinfo
 from .processors import run_processor
 
 
