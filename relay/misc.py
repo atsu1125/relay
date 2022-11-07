@@ -487,13 +487,6 @@ class Message(DotDict):
 
 
 class WKNodeinfo(DotDict):
-	def __setitem__(self, key, value):
-		if key == 'links':
-			value = [DotDict(item) for item in value]
-
-		DotDict.__setitem__(self, key, value)
-
-
 	@classmethod
 	def new(cls, v20, v21):
 		return cls({
@@ -506,7 +499,7 @@ class WKNodeinfo(DotDict):
 
 	def get_url(self, version='20'):
 		for item in self.links:
-			if item.rel == NODEINFO_NS[version]:
-				return item.href
+			if item['rel'] == NODEINFO_NS[version]:
+				return item['href']
 
 		raise KeyError(version)
