@@ -10,6 +10,7 @@ from Crypto.Hash import SHA, SHA256, SHA512
 from Crypto.PublicKey import RSA
 from Crypto.Signature import PKCS1_v1_5
 from aiohttp import ClientSession
+from aiohttp.web import Response as AiohttpResponse
 from datetime import datetime
 from json.decoder import JSONDecodeError
 from urllib.parse import urlparse
@@ -24,6 +25,13 @@ HASHES = {
 	'sha1': SHA,
 	'sha256': SHA256,
 	'sha512': SHA512
+}
+
+MIMETYPES = {
+	'activity': 'application/activity+json',
+	'html': 'text/html',
+	'json': 'application/json',
+	'plain': 'text/plain'
 }
 
 NODEINFO_NS = {
@@ -166,12 +174,12 @@ async def request(uri, data=None, force=False, sign_headers=True, activity=True)
 	method = 'POST' if data else 'GET'
 	action = data.get('type') if data else None
 	headers = {
-		'Accept': 'application/activity+json, application/json;q=0.9',
+		'Accept': f'{MIMETYPES["activity"]}, {MIMETYPES["json"]};q=0.9',
 		'User-Agent': 'ActivityRelay',
 	}
 
 	if data:
-		headers['Content-Type'] = 'application/activity+json' if activity else 'application/json'
+		headers['Content-Type'] = MIMETYPES['activity' if activity else 'json']
 
 	if sign_headers:
 		signing_headers = {
@@ -219,10 +227,10 @@ async def request(uri, data=None, force=False, sign_headers=True, activity=True)
 
 					return logging.verbose(f'Received error when sending {action} to {uri}: {resp.status} {resp_data}')
 
-				if resp.content_type == 'application/activity+json':
+				if resp.content_type == MIMETYPES['activity']:
 					resp_data = await resp.json(loads=Message.new_from_json)
 
-				elif resp.content_type == 'application/json':
+				elif resp.content_type == MIMETYPES['json']:
 					resp_data = await resp.json(loads=DotDict.new_from_json)
 
 				else:
@@ -451,6 +459,45 @@ class Message(DotDict):
 			return self.object.id
 
 		return self.object
+
+
+class Response(AiohttpResponse):
+	@classmethod
+	def new(cls, body='', status=200, headers=None, ctype='text'):
+		kwargs = {
+			'status': status,
+			'headers': headers,
+			'content_type': MIMETYPES[ctype]
+		}
+
+		if isinstance(body, bytes):
+			kwargs['body'] = body
+
+		elif isinstance(body, dict) and ctype in {'json', 'activity'}:
+			kwargs['text'] = json.dumps(body)
+
+		else:
+			kwargs['text'] = body
+
+		return cls(**kwargs)
+
+
+	@classmethod
+	def new_error(cls, status, body, ctype='plain'):
+		if ctype == 'json':
+			body = json.dumps({'status': status, 'error': body})
+
+		return cls(body=body, status=status, ctype=ctype)
+
+
+	@property
+	def location(self):
+		return self.headers.get('Location')
+
+
+	@location.setter
+	def location(self, value):
+		self.headers['Location'] = value
 
 
 class WKNodeinfo(DotDict):
