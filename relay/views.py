@@ -156,9 +156,9 @@ async def webfinger(request):
 
 @register_route('GET', '/nodeinfo/{version:\d.\d\.json}')
 async def nodeinfo_2_0(request):
-	version = request.match_info['version'][:3]
+	niversion = request.match_info['version'][:3]
 	data = {
-		'openRegistrations': True,
+		'openRegistrations': not request.app.config.whitelist_enabled,
 		'protocols': ['activitypub'],
 		'services': {
 			'inbound': [],
@@ -177,7 +177,7 @@ async def nodeinfo_2_0(request):
 		'metadata': {
 			'peers': request.app.database.hostnames
 		},
-		'version': version
+		'version': niversion
 	}
 
 	if version == '2.1':
