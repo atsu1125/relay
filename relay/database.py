@@ -11,6 +11,7 @@ class RelayDatabase(dict):
 		dict.__init__(self, {
 			'relay-list': {},
 			'private-key': None,
+			'follow-requests': {},
 			'version': 1
 		})
 
@@ -161,3 +162,39 @@ class RelayDatabase(dict):
 	def set_followid(self, domain, followid):
 		data = self.get_inbox(domain, fail=True)
 		data['followid'] = followid
+
+
+	def get_request(self, domain, fail=True):
+		if domain.startswith('http'):
+			domain = urlparse(domain).hostname
+
+		try:
+			return self['follow-requests'][domain]
+
+		except KeyError as e:
+			if fail:
+				raise e
+
+
+	def add_request(self, actor, inbox, followid):
+		domain = urlparse(inbox).hostname
+
+		try:
+			request = self.get_request(domain)
+			request['followid'] = followid
+
+		except KeyError:
+			pass
+
+		self['follow-requests'][domain] = {
+			'actor': actor,
+			'inbox': inbox,
+			'followid': followid
+		}
+
+
+	def del_request(self, domain):
+		if domain.startswith('http'):
+			domain = urlparse(inbox).hostname
+
+		del self['follow-requests'][domain]
