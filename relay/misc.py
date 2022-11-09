@@ -275,6 +275,12 @@ async def validate_signature(actor, http_request):
 
 
 class DotDict(dict):
+	def __init__(self, _data, **kwargs):
+		dict.__init__(self)
+
+		self.update(_data, **kwargs)
+
+
 	def __getattr__(self, k):
 		try:
 			return self[k]
@@ -320,6 +326,19 @@ class DotDict(dict):
 
 	def to_json(self, indent=None):
 		return json.dumps(self, indent=indent)
+
+
+	def update(self, _data, **kwargs):
+		if isinstance(_data, dict):
+			for key, value in _data.items():
+				self[key] = value
+
+		elif isinstance(_data, (list, tuple, set)):
+			for key, value in _data:
+				self[key] = value
+
+		for key, value in kwargs.items():
+			self[key] = value
 
 
 class Message(DotDict):
