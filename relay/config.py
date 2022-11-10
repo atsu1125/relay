@@ -32,27 +32,15 @@ class RelayConfig(DotDict):
 
 
 	def __init__(self, path, is_docker):
+		DotDict.__init__(self, {})
+
 		if is_docker:
 			path = '/data/relay.yaml'
 
 		self._isdocker = is_docker
 		self._path = Path(path).expanduser()
 
-		super().__init__({
-			'db': str(self._path.parent.joinpath(f'{self._path.stem}.jsonld')),
-			'listen': '0.0.0.0',
-			'port': 8080,
-			'note': 'Make a note about your instance here.',
-			'push_limit': 512,
-			'host': 'relay.example.com',
-			'blocked_software': [],
-			'blocked_instances': [],
-			'whitelist': [],
-			'whitelist_enabled': False,
-			'json': 1024,
-			'objects': 1024,
-			'digests': 1024
-		})
+		self.reset()
 
 
 	def __setitem__(self, key, value):
@@ -95,6 +83,24 @@ class RelayConfig(DotDict):
 	def keyid(self):
 		return f'{self.actor}#main-key'
 
+
+	def reset(self):
+		self.clear()
+		self.update({
+			'db': str(self._path.parent.joinpath(f'{self._path.stem}.jsonld')),
+			'listen': '0.0.0.0',
+			'port': 8080,
+			'note': 'Make a note about your instance here.',
+			'push_limit': 512,
+			'host': 'relay.example.com',
+			'blocked_software': [],
+			'blocked_instances': [],
+			'whitelist': [],
+			'whitelist_enabled': False,
+			'json': 1024,
+			'objects': 1024,
+			'digests': 1024
+		})
 
 	def ban_instance(self, instance):
 		if instance.startswith('http'):
@@ -181,6 +187,8 @@ class RelayConfig(DotDict):
 
 
 	def load(self):
+		self.reset()
+
 		options = {}
 
 		try:
