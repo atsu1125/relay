@@ -28,7 +28,7 @@ class Application(web.Application):
 		self['database'] = RelayDatabase(self['config'])
 		self['database'].load()
 
-		self['cache'] = DotDict({key: LRUCache(maxsize=self['config'][key]) for key in self['config'].cachekeys})
+		self['cache'] = DotDict({key: Cache(maxsize=self['config'][key]) for key in self['config'].cachekeys})
 		self['semaphore'] = asyncio.Semaphore(self['config'].push_limit)
 
 		self.set_signal_handler()
@@ -117,3 +117,8 @@ class Application(web.Application):
 
 		self['starttime'] = None
 		self['running'] = False
+
+
+class Cache(LRUCache):
+	def set_maxsize(self, value):
+		self.__maxsize = int(value)
