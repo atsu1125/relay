@@ -10,7 +10,8 @@ from Crypto.Hash import SHA, SHA256, SHA512
 from Crypto.PublicKey import RSA
 from Crypto.Signature import PKCS1_v1_5
 from aiohttp import ClientSession
-from aiohttp.web import Response as AiohttpResponse
+from aiohttp.hdrs import METH_ALL as METHODS
+from aiohttp.web import Response as AiohttpResponse, View as AiohttpView
 from datetime import datetime
 from json.decoder import JSONDecodeError
 from urllib.parse import urlparse
@@ -31,7 +32,7 @@ MIMETYPES = {
 	'activity': 'application/activity+json',
 	'html': 'text/html',
 	'json': 'application/json',
-	'plain': 'text/plain'
+	'text': 'text/plain'
 }
 
 NODEINFO_NS = {
@@ -483,7 +484,7 @@ class Response(AiohttpResponse):
 
 
 	@classmethod
-	def new_error(cls, status, body, ctype='plain'):
+	def new_error(cls, status, body, ctype='text'):
 		if ctype == 'json':
 			body = json.dumps({'status': status, 'error': body})
 
@@ -498,6 +499,39 @@ class Response(AiohttpResponse):
 	@location.setter
 	def location(self, value):
 		self.headers['Location'] = value
+
+
+class View(AiohttpView):
+	async def _iter(self):
+		if self.request.method not in METHODS:
+			self._raise_allowed_methods()
+
+		method = getattr(self, self.request.method.lower(), None)
+
+		if method is None:
+			self._raise_allowed_methods()
+
+		return await method(**self.request.match_info)
+
+
+	@property
+	def app(self):
+		return self._request.app
+
+
+	@property
+	def cache(self):
+		return self.app.cache
+
+
+	@property
+	def config(self):
+		return self.app.config
+
+
+	@property
+	def database(self):
+		return self.app.database
 
 
 class WKNodeinfo(DotDict):
