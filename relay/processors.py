@@ -48,7 +48,7 @@ async def handle_forward(request, actor, data, software):
 
 
 async def handle_follow(request, actor, data, software):
-	if request.app.database.add_inbox(inbox, data.id):
+	if not request.app.database.add_inbox(actor.shared_inbox, data.id):
 		request.app.database.set_followid(actor.id, data.id)
 
 	request.app.database.save()
