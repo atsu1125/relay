@@ -71,7 +71,6 @@ async def actor(request):
 async def inbox(request):
 	config = request.app.config
 	database = request.app.database
-	software = None
 
 	## reject if missing signature header
 	if 'signature' not in request.headers:
@@ -92,6 +91,7 @@ async def inbox(request):
 		logging.verbose('Failed to parse inbox message')
 		return Response.new_error(400, 'failed to parse message', 'json')
 
+	software = await misc.fetch_nodeinfo(data.domain)
 	actor = await misc.request(data.actorid)
 
 	## reject if actor is empty
@@ -110,12 +110,9 @@ async def inbox(request):
 		return Response.new_error(403, 'access denied', 'json')
 
 	## reject if software used by actor is banned
-	if len(config.blocked_software):
-		software = await misc.fetch_nodeinfo(data.domain)
-
-		if config.is_banned_software(software):
-			logging.verbose(f'Rejected actor for using specific software: {software}')
-			return Response.new_error(403, 'access denied', 'json')
+	if config.is_banned_software(software):
+		logging.verbose(f'Rejected actor for using specific software: {software}')
+		return Response.new_error(403, 'access denied', 'json')
 
 	## reject if the signature is invalid
 	if not (await misc.validate_signature(data.actorid, request)):
