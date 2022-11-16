@@ -71,6 +71,7 @@ async def actor(request):
 async def inbox(request):
 	config = request.app.config
 	database = request.app.database
+	software = None
 
 	## reject if missing signature header
 	if 'signature' not in request.headers:
