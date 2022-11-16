@@ -71,10 +71,13 @@ class Application(web.Application):
 
 
 	def set_signal_handler(self):
-		signal.signal(signal.SIGHUP, self.stop)
-		signal.signal(signal.SIGINT, self.stop)
-		signal.signal(signal.SIGQUIT, self.stop)
-		signal.signal(signal.SIGTERM, self.stop)
+		for sig in {'SIGHUP', 'SIGINT', 'SIGQUIT', 'SIGTERM'}:
+			try:
+				signal.signal(getattr(signal, sig), self.stop)
+
+			# some signals don't exist in windows, so skip them
+			except AttributeError:
+				pass
 
 
 	def run(self):
