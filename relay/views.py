@@ -82,13 +82,10 @@ async def inbox(request):
 	try:
 		data = await request.json(loads=Message.new_from_json)
 
+		## reject if there is no actor in the message
 		if 'actor' not in data:
-			raise KeyError('actor')
-
-	## reject if there is no actor in the message
-	except KeyError:
-		logging.verbose('actor not in data')
-		return Response.new_error(400, 'no actor in message', 'json')
+			logging.verbose('actor not in data')
+			return Response.new_error(400, 'no actor in message', 'json')
 
 	except:
 		traceback.print_exc()
