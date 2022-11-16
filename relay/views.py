@@ -2,6 +2,8 @@ import logging
 import subprocess
 import traceback
 
+from pathlib import Path
+
 from . import __version__, misc
 from .http_debug import STATS
 from .misc import Message, Response, WKNodeinfo
@@ -9,13 +11,16 @@ from .processors import run_processor
 
 
 routes = []
+version = __version__
 
-try:
-	commit_label = subprocess.check_output(["git", "rev-parse", "HEAD"]).strip().decode('ascii')
-	version = f'{__version__} {commit_label}'
 
-except:
-	version = __version__
+if Path(__file__).parent.parent.joinpath('.git').exists():
+	try:
+		commit_label = subprocess.check_output(["git", "rev-parse", "HEAD"]).strip().decode('ascii')
+		version = f'{__version__} {commit_label}'
+
+	except:
+		pass
 
 
 def register_route(method, path):
