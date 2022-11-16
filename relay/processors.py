@@ -66,7 +66,7 @@ async def handle_follow(request, actor, data, software):
 	# Are Akkoma and Pleroma the only two that expect a follow back?
 	# Ignoring only Mastodon for now
 	if software != 'mastodon':
-		misc.request(
+		await misc.request(
 			actor.shared_inbox,
 			misc.Message.new_follow(
 				host = request.app.config.host,
