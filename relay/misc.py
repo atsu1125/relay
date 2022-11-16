@@ -488,7 +488,7 @@ class Response(AiohttpResponse):
 		if ctype == 'json':
 			body = json.dumps({'status': status, 'error': body})
 
-		return cls(body=body, status=status, ctype=ctype)
+		return cls.new(body=body, status=status, ctype=ctype)
 
 
 	@property
