@@ -106,20 +106,6 @@ def sign_signing_string(sigstring, key):
 	return base64.b64encode(sigdata).decode('utf-8')
 
 
-def split_signature(sig):
-	default = {"headers": "date"}
-
-	sig = sig.strip().split(',')
-
-	for chunk in sig:
-		k, _, v = chunk.partition('=')
-		v = v.strip('\"')
-		default[k] = v
-
-	default['headers'] = default['headers'].split()
-	return default
-
-
 async def fetch_actor_key(actor):
 	actor_data = await request(actor)
 
@@ -250,29 +236,19 @@ async def request(uri, data=None, force=False, sign_headers=True, activity=True)
 		traceback.print_exc()
 
 
-async def validate_signature(actor, http_request):
-	pubkey = await fetch_actor_key(actor)
-
-	if not pubkey:
-		return False
-
-	logging.debug(f'actor key: {pubkey}')
-
+async def validate_signature(actor, signature, http_request):
 	headers = {key.lower(): value for key, value in http_request.headers.items()}
 	headers['(request-target)'] = ' '.join([http_request.method.lower(), http_request.path])
 
-	sig = split_signature(headers['signature'])
-	logging.debug(f'sigdata: {sig}')
-
-	sigstring = build_signing_string(headers, sig['headers'])
+	sigstring = build_signing_string(headers, signature['headers'])
 	logging.debug(f'sigstring: {sigstring}')
 
-	sign_alg, _, hash_alg = sig['algorithm'].partition('-')
+	sign_alg, _, hash_alg = signature['algorithm'].partition('-')
 	logging.debug(f'sign alg: {sign_alg}, hash alg: {hash_alg}')
 
-	sigdata = base64.b64decode(sig['signature'])
+	sigdata = base64.b64decode(signature['signature'])
 
-	pkcs = PKCS1_v1_5.new(pubkey)
+	pkcs = PKCS1_v1_5.new(actor.PUBKEY)
 	h = HASHES[hash_alg].new()
 	h.update(sigstring.encode('ascii'))
 	result = pkcs.verify(h, sigdata)
@@ -331,6 +307,22 @@ class DotDict(dict):
 
 		except ValueError:
 			raise JSONDecodeError('Invalid body', data, 1)
+
+
+	@classmethod
+	def new_from_signature(cls, sig):
+		data = cls({})
+
+		for chunk in sig.strip().split(','):
+			key, value = chunk.split('=', 1)
+			value = value.strip('\"')
+
+			if key == 'headers':
+				value = value.split()
+
+			data[key.lower()] = value
+
+		return data
 
 
 	def to_json(self, indent=None):
@@ -435,6 +427,11 @@ class Message(DotDict):
 
 
 	# actor properties
+	@property
+	def PUBKEY(self):
+		return RSA.import_key(self.pubkey)
+
+
 	@property
 	def pubkey(self):
 		return self.publicKey.publicKeyPem

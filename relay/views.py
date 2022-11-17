@@ -6,7 +6,7 @@ from pathlib import Path
 
 from . import __version__, misc
 from .http_debug import STATS
-from .misc import Message, Response, WKNodeinfo
+from .misc import DotDict, Message, Response, WKNodeinfo
 from .processors import run_processor
 
 
@@ -78,11 +78,14 @@ async def inbox(request):
 	database = request.app.database
 
 	## reject if missing signature header
-	if 'signature' not in request.headers:
+	try:
+		signature = DotDict.new_from_signature(request.headers['signature'])
+
+	except KeyError:
 		logging.verbose('Actor missing signature header')
 		raise HTTPUnauthorized(body='missing signature')
 
-	## read message and get actor id and domain
+	## read message
 	try:
 		data = await request.json(loads=Message.new_from_json)
 
@@ -96,22 +99,22 @@ async def inbox(request):
 		logging.verbose('Failed to parse inbox message')
 		return Response.new_error(400, 'failed to parse message', 'json')
 
-	software = await misc.fetch_nodeinfo(data.domain)
-	actor = await misc.request(data.actorid)
+	actor = await misc.request(signature.keyid)
+	software = await misc.fetch_nodeinfo(actor.domain)
 
 	## reject if actor is empty
 	if not actor:
-		logging.verbose(f'Failed to fetch actor: {data.actorid}')
+		logging.verbose(f'Failed to fetch actor: {actor.id}')
 		return Response.new_error(400, 'failed to fetch actor', 'json')
 
 	## reject if the actor isn't whitelisted while the whiltelist is enabled
-	elif config.whitelist_enabled and not config.is_whitelisted(data.domain):
-		logging.verbose(f'Rejected actor for not being in the whitelist: {data.actorid}')
+	elif config.whitelist_enabled and not config.is_whitelisted(actor.domain):
+		logging.verbose(f'Rejected actor for not being in the whitelist: {actor.id}')
 		return Response.new_error(403, 'access denied', 'json')
 
 	## reject if actor is banned
-	if request.app['config'].is_banned(data.domain):
-		logging.verbose(f'Ignored request from banned actor: {data.actorid}')
+	if request.app['config'].is_banned(actor.domain):
+		logging.verbose(f'Ignored request from banned actor: {actor.id}')
 		return Response.new_error(403, 'access denied', 'json')
 
 	## reject if software used by actor is banned
@@ -120,13 +123,13 @@ async def inbox(request):
 		return Response.new_error(403, 'access denied', 'json')
 
 	## reject if the signature is invalid
-	if not (await misc.validate_signature(data.actorid, request)):
-		logging.verbose(f'signature validation failed for: {data.actorid}')
+	if not (await misc.validate_signature(actor, signature, request)):
+		logging.verbose(f'signature validation failed for: {actor.id}')
 		return Response.new_error(401, 'signature check failed', 'json')
 
 	## reject if activity type isn't 'Follow' and the actor isn't following
-	if data['type'] != 'Follow' and not database.get_inbox(data.domain):
-		logging.verbose(f'Rejected actor for trying to post while not following: {data.actorid}')
+	if data['type'] != 'Follow' and not database.get_inbox(actor.domain):
+		logging.verbose(f'Rejected actor for trying to post while not following: {actor.id}')
 		return Response.new_error(401, 'access denied', 'json')
 
 	logging.debug(f">> payload {data}")
