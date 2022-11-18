@@ -10,7 +10,7 @@ port: 8080
 note: "Make a note about your instance here."
 
 # maximum number of inbox posts to do at once
-post_limit: 512
+push_limit: 512
 
 # this section is for ActivityPub
 ap:
@@ -39,5 +39,5 @@ ap:
 # cache limits as number of items. only change this if you know what you're doing
 cache:
   objects: 1024
-  actors: 1024
+  json: 1024
   digests: 1024
