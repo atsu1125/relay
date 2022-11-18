@@ -33,10 +33,10 @@ def register_route(method, path):
 
 @register_route('GET', '/')
 async def home(request):
-	targets = '<br>'.join(request.app.database.hostnames)
-	note = request.app.config.note
-	count = len(request.app.database.hostnames)
-	host = request.app.config.host
+	targets = '<br>'.join(request.database.hostnames)
+	note = request.config.note
+	count = len(request.database.hostnames)
+	host = request.config.host
 
 	text = f"""
 <html><head>
@@ -64,8 +64,8 @@ a:hover {{ color: #8AF; }}
 @register_route('GET', '/actor')
 async def actor(request):
 	data = Message.new_actor(
-		host = request.app.config.host, 
-		pubkey = request.app.database.pubkey
+		host = request.config.host, 
+		pubkey = request.database.pubkey
 	)
 
 	return Response.new(data, ctype='activity')
@@ -74,67 +74,63 @@ async def actor(request):
 @register_route('POST', '/inbox')
 @register_route('POST', '/actor')
 async def inbox(request):
-	config = request.app.config
-	database = request.app.database
+	config = request.config
+	database = request.database
 
 	## reject if missing signature header
-	try:
-		signature = DotDict.new_from_signature(request.headers['signature'])
-
-	except KeyError:
+	if not request.signature:
 		logging.verbose('Actor missing signature header')
 		raise HTTPUnauthorized(body='missing signature')
 
-	## read message
 	try:
-		data = await request.json(loads=Message.new_from_json)
+		request['message'] = await request.json(loads=Message.new_from_json)
+
+		## reject if there is no message
+		if not request.message:
+			logging.verbose('empty message')
+			return Response.new_error(400, 'missing message', 'json')
 
 		## reject if there is no actor in the message
-		if 'actor' not in data:
-			logging.verbose('actor not in data')
+		if 'actor' not in request.message:
+			logging.verbose('actor not in message')
 			return Response.new_error(400, 'no actor in message', 'json')
 
 	except:
+		## this code should hopefully never get called
 		traceback.print_exc()
 		logging.verbose('Failed to parse inbox message')
 		return Response.new_error(400, 'failed to parse message', 'json')
 
-	actor = await misc.request(signature.keyid)
-	nodeinfo = await misc.fetch_nodeinfo(actor.domain)
+	request['actor'] = await misc.request(request.signature.keyid)
 
 	## reject if actor is empty
-	if not actor:
-		logging.verbose(f'Failed to fetch actor: {actor.id}')
+	if not request.actor:
+		logging.verbose(f'Failed to fetch actor: {request.actor.id}')
 		return Response.new_error(400, 'failed to fetch actor', 'json')
 
 	## reject if the actor isn't whitelisted while the whiltelist is enabled
-	elif config.whitelist_enabled and not config.is_whitelisted(actor.domain):
-		logging.verbose(f'Rejected actor for not being in the whitelist: {actor.id}')
+	if config.whitelist_enabled and not config.is_whitelisted(request.actor.domain):
+		logging.verbose(f'Rejected actor for not being in the whitelist: {request.actor.id}')
 		return Response.new_error(403, 'access denied', 'json')
 
 	## reject if actor is banned
-	if request.app['config'].is_banned(actor.domain):
+	if request.config.is_banned(request.actor.domain):
 		logging.verbose(f'Ignored request from banned actor: {actor.id}')
 		return Response.new_error(403, 'access denied', 'json')
 
-	## reject if software used by actor is banned
-	if config.is_banned_software(nodeinfo.swname):
-		logging.verbose(f'Rejected actor for using specific software: {nodeinfo.swname}')
-		return Response.new_error(403, 'access denied', 'json')
-
 	## reject if the signature is invalid
-	if not (await misc.validate_signature(actor, signature, request)):
+	if not (await misc.validate_signature(request.actor, request.signature, request)):
 		logging.verbose(f'signature validation failed for: {actor.id}')
 		return Response.new_error(401, 'signature check failed', 'json')
 
 	## reject if activity type isn't 'Follow' and the actor isn't following
-	if data['type'] != 'Follow' and not database.get_inbox(actor.domain):
-		logging.verbose(f'Rejected actor for trying to post while not following: {actor.id}')
+	if request.message.type != 'Follow' and not database.get_inbox(request.actor.domain):
+		logging.verbose(f'Rejected actor for trying to post while not following: {request.actor.id}')
 		return Response.new_error(401, 'access denied', 'json')
 
-	logging.debug(f">> payload {data}")
+	logging.debug(f">> payload {request.message.to_json(4)}")
 
-	await run_processor(request, actor, data, nodeinfo)
+	await run_processor(request)
 	return Response.new(status=202)
 
 
@@ -146,15 +142,15 @@ async def webfinger(request):
 	except KeyError:
 		return Response.new_error(400, 'missing \'resource\' query key', 'json')
 
-	if subject != f'acct:relay@{request.app.config.host}':
+	if subject != f'acct:relay@{request.config.host}':
 		return Response.new_error(404, 'user not found', 'json')
 
 	data = {
 		'subject': subject,
-		'aliases': [request.app.config.actor],
+		'aliases': [request.config.actor],
 		'links': [
-			{'href': request.app.config.actor, 'rel': 'self', 'type': 'application/activity+json'},
-			{'href': request.app.config.actor, 'rel': 'self', 'type': 'application/ld+json; profile=\"https://www.w3.org/ns/activitystreams\"'}
+			{'href': request.config.actor, 'rel': 'self', 'type': 'application/activity+json'},
+			{'href': request.config.actor, 'rel': 'self', 'type': 'application/ld+json; profile=\"https://www.w3.org/ns/activitystreams\"'}
 		]
 	}
 
@@ -165,7 +161,7 @@ async def webfinger(request):
 async def nodeinfo_2_0(request):
 	niversion = request.match_info['version'][:3]
 	data = {
-		'openRegistrations': not request.app.config.whitelist_enabled,
+		'openRegistrations': not request.config.whitelist_enabled,
 		'protocols': ['activitypub'],
 		'services': {
 			'inbound': [],
@@ -182,7 +178,7 @@ async def nodeinfo_2_0(request):
 			}
 		},
 		'metadata': {
-			'peers': request.app.database.hostnames
+			'peers': request.database.hostnames
 		},
 		'version': niversion
 	}
@@ -196,8 +192,8 @@ async def nodeinfo_2_0(request):
 @register_route('GET', '/.well-known/nodeinfo')
 async def nodeinfo_wellknown(request):
 	data = WKNodeinfo.new(
-		v20 = f'https://{request.app.config.host}/nodeinfo/2.0.json',
-		v21 = f'https://{request.app.config.host}/nodeinfo/2.1.json'
+		v20 = f'https://{request.config.host}/nodeinfo/2.0.json',
+		v21 = f'https://{request.config.host}/nodeinfo/2.1.json'
 	)
 
 	return Response.new(data, ctype='json')
