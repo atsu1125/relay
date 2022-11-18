@@ -126,3 +126,32 @@ class Application(web.Application):
 class Cache(LRUCache):
 	def set_maxsize(self, value):
 		self.__maxsize = int(value)
+
+
+## Can't sub-class web.Request, so let's just add some properties
+def request_actor(self):
+	try: return self['actor']
+	except KeyError: pass
+
+
+def request_message(self):
+	try: return self['message']
+	except KeyError: pass
+
+
+def request_signature(self):
+	if 'signature' not in self._state:
+		try: self['signature'] = DotDict.new_from_signature(self.headers['signature'])
+		except KeyError: return
+
+	return self['signature']
+
+
+setattr(web.Request, 'actor', property(request_actor))
+setattr(web.Request, 'message', property(request_message))
+setattr(web.Request, 'signature', property(request_signature))
+
+setattr(web.Request, 'cache', property(lambda self: self.app.cache))
+setattr(web.Request, 'config', property(lambda self: self.app.config))
+setattr(web.Request, 'database', property(lambda self: self.app.database))
+setattr(web.Request, 'semaphore', property(lambda self: self.app.semaphore))
