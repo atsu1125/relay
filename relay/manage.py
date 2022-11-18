@@ -62,7 +62,6 @@ def cli_inbox_follow(actor):
 	else:
 		domain = urlparse(actor).hostname
 
-
 	try:
 		inbox_data = app.database['relay-list'][domain]
 		inbox = inbox_data['inbox']

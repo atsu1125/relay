@@ -42,7 +42,6 @@ class RelayDatabase(dict):
 	@property
 	def inboxes(self):
 		return tuple(data['inbox'] for data in self['relay-list'].values())
-		return self['relay-list']
 
 
 	def generate_key(self):
