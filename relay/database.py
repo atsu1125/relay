@@ -129,20 +129,25 @@ class RelayDatabase(dict):
 			raise KeyError(domain)
 
 
-	def add_inbox(self, inbox, followid=None, fail=False):
+	def add_inbox(self, inbox, followid=None, software=None):
 		assert inbox.startswith('https'), 'Inbox must be a url'
 		domain = urlparse(inbox).hostname
+		instance = self.get_inbox(domain)
 
-		if self.get_inbox(domain):
-			if fail:
-				raise KeyError(domain)
+		if instance:
+			if followid:
+				instance['followid'] = followid
 
-			return False
+			if software:
+				instance['software'] = software
+
+			return instance
 
 		self['relay-list'][domain] = {
 			'domain': domain,
 			'inbox': inbox,
-			'followid': followid
+			'followid': followid,
+			'software': software
 		}
 
 		logging.verbose(f'Added inbox to database: {inbox}')
