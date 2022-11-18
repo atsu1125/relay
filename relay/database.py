@@ -120,13 +120,13 @@ class RelayDatabase(dict):
 		if domain.startswith('http'):
 			domain = urlparse(domain).hostname
 
-		if domain not in self['relay-list']:
-			if fail:
-				raise KeyError(domain)
+		inbox = self['relay-list'].get(domain)
 
-			return
+		if inbox:
+			return inbox
 
-		return self['relay-list'][domain]
+		if fail:
+			raise KeyError(domain)
 
 
 	def add_inbox(self, inbox, followid=None, fail=False):
