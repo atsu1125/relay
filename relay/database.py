@@ -1,9 +1,12 @@
+import asyncio
 import json
 import logging
 import traceback
 
 from Crypto.PublicKey import RSA
 from urllib.parse import urlparse
+
+from .misc import fetch_nodeinfo
 
 
 class RelayDatabase(dict):
@@ -75,9 +78,18 @@ class RelayDatabase(dict):
 			else:
 				self['relay-list'] = data.get('relay-list', {})
 
-			for domain in self['relay-list'].keys():
+			for domain, instance in self['relay-list'].items():
 				if self.config.is_banned(domain) or (self.config.whitelist_enabled and not self.config.is_whitelisted(domain)):
 					self.del_inbox(domain)
+					continue
+
+				if not instance.get('software'):
+					nodeinfo = asyncio.run(fetch_nodeinfo(domain))
+
+					if not nodeinfo:
+						continue
+
+					instance['software'] = nodeinfo.swname
 
 			new_db = False
 

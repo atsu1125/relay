@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 
 from .config import RelayConfig
 from .database import RelayDatabase
-from .misc import DotDict, check_open_port, set_app
+from .misc import DotDict, check_open_port, fetch_nodeinfo, set_app
 from .views import routes
 
 
@@ -25,14 +25,15 @@ class Application(web.Application):
 		if not self['config'].load():
 			self['config'].save()
 
-		self['database'] = RelayDatabase(self['config'])
-		self['database'].load()
-
 		self['cache'] = DotDict({key: Cache(maxsize=self['config'][key]) for key in self['config'].cachekeys})
 		self['semaphore'] = asyncio.Semaphore(self['config'].push_limit)
 
-		self.set_signal_handler()
 		set_app(self)
+
+		self['database'] = RelayDatabase(self['config'])
+		self['database'].load()
+
+		self.set_signal_handler()
 
 
 	@property
