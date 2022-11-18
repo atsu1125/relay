@@ -1,17 +1,17 @@
 import Crypto
 import asyncio
 import click
-import json
 import logging
-import os
 import platform
 
-from aiohttp.web import AppRunner, TCPSite
-from cachetools import LRUCache
+from urllib.parse import urlparse
 
-from . import app, misc, views, __version__
-from .config import DotDict, RelayConfig, relay_software_names
-from .database import RelayDatabase
+from . import misc, __version__
+from .application import Application
+from .config import relay_software_names
+
+
+app = None
 
 
 @click.group('cli', context_settings={'show_default': True}, invoke_without_command=True)
@@ -19,23 +19,11 @@ from .database import RelayDatabase
 @click.version_option(version=__version__, prog_name='ActivityRelay')
 @click.pass_context
 def cli(ctx, config):
-	app['is_docker'] = bool(os.environ.get('DOCKER_RUNNING'))
-	app['config'] = RelayConfig(config, app['is_docker'])
-
-	if not app['config'].load():
-		app['config'].save()
-
-	app['database'] = RelayDatabase(app['config'])
-	app['database'].load()
-
-	app['cache'] = DotDict()
-	app['semaphore'] = asyncio.Semaphore(app['config']['push_limit'])
-
-	for key in app['config'].cachekeys:
-		app['cache'][key] = LRUCache(app['config'][key])
+	global app
+	app = Application(config)
 
 	if not ctx.invoked_subcommand:
-		if app['config'].host.endswith('example.com'):
+		if app.config.host.endswith('example.com'):
 			relay_setup.callback()
 
 		else:
@@ -55,7 +43,7 @@ def cli_inbox_list():
 
 	click.echo('Connected to the following instances or relays:')
 
-	for inbox in app['database'].inboxes:
+	for inbox in app.database.inboxes:
 		click.echo(f'- {inbox}')
 
 
@@ -64,29 +52,30 @@ def cli_inbox_list():
 def cli_inbox_follow(actor):
 	'Follow an actor (Relay must be running)'
 
-	config = app['config']
-	database = app['database']
-
-	if config.is_banned(actor):
+	if app.config.is_banned(actor):
 		return click.echo(f'Error: Refusing to follow banned actor: {actor}')
 
 	if not actor.startswith('http'):
+		domain = actor
 		actor = f'https://{actor}/actor'
 
-	if database.get_inbox(actor):
-		return click.echo(f'Error: Already following actor: {actor}')
+	else:
+		domain = urlparse(actor).hostname
 
-	actor_data = run_in_loop(misc.request, actor, sign_headers=True)
+	try:
+		inbox_data = app.database['relay-list'][domain]
+		inbox = inbox_data['inbox']
 
-	if not actor_data:
-		return click.echo(f'Error: Failed to fetch actor: {actor}')
+	except KeyError:
+		actor_data = asyncio.run(misc.request(actor))
+		inbox = actor_data.shared_inbox
 
-	inbox = misc.get_actor_inbox(actor_data)
+	message = misc.Message.new_follow(
+		host = app.config.host,
+		actor = actor.id
+	)
 
-	database.add_inbox(inbox)
-	database.save()
-
-	run_in_loop(misc.follow_remote_actor, actor)
+	asyncio.run(misc.request(inbox, message))
 	click.echo(f'Sent follow message to actor: {actor}')
 
 
@@ -95,18 +84,36 @@ def cli_inbox_follow(actor):
 def cli_inbox_unfollow(actor):
 	'Unfollow an actor (Relay must be running)'
 
-	database = app['database']
-
 	if not actor.startswith('http'):
+		domain = actor
 		actor = f'https://{actor}/actor'
 
-	if not database.get_inbox(actor):
-		return click.echo(f'Error: Not following actor: {actor}')
+	else:
+		domain = urlparse(actor).hostname
 
-	database.del_inbox(actor)
-	database.save()
+	try:
+		inbox_data = app.database['relay-list'][domain]
+		inbox = inbox_data['inbox']
+		message = misc.Message.new_unfollow(
+			host = app.config.host,
+			actor = actor,
+			follow = inbox_data['followid']
+		)
 
-	run_in_loop(misc.unfollow_remote_actor, actor)
+	except KeyError:
+		actor_data = asyncio.run(misc.request(actor))
+		inbox = actor_data.shared_inbox
+		message = misc.Message.new_unfollow(
+			host = app.config.host,
+			actor = actor,
+			follow = {
+				'type': 'Follow',
+				'object': actor,
+				'actor': f'https://{app.config.host}/actor'
+			}
+		)
+
+	asyncio.run(misc.request(inbox, message))
 	click.echo(f'Sent unfollow message to: {actor}')
 
 
@@ -115,23 +122,17 @@ def cli_inbox_unfollow(actor):
 def cli_inbox_add(inbox):
 	'Add an inbox to the database'
 
-	database = app['database']
-	config = app['config']
-
 	if not inbox.startswith('http'):
 		inbox = f'https://{inbox}/inbox'
 
-	if database.get_inbox(inbox):
-		click.echo(f'Error: Inbox already in database: {inbox}')
-		return
+	if app.config.is_banned(inbox):
+		return click.echo(f'Error: Refusing to add banned inbox: {inbox}')
 
-	if config.is_banned(inbox):
-		click.echo(f'Error: Refusing to add banned inbox: {inbox}')
-		return
+	if app.database.add_inbox(inbox):
+		app.database.save()
+		return click.echo(f'Added inbox to the database: {inbox}')
 
-	database.add_inbox(inbox)
-	database.save()
-	click.echo(f'Added inbox to the database: {inbox}')
+	click.echo(f'Error: Inbox already in database: {inbox}')
 
 
 @cli_inbox.command('remove')
@@ -139,15 +140,16 @@ def cli_inbox_add(inbox):
 def cli_inbox_remove(inbox):
 	'Remove an inbox from the database'
 
-	database = app['database']
-	dbinbox = database.get_inbox(inbox)
+	try:
+		dbinbox = app.database.get_inbox(inbox, fail=True)
 
-	if not dbinbox:
+	except KeyError:
 		click.echo(f'Error: Inbox does not exist: {inbox}')
 		return
 
-	database.del_inbox(dbinbox)
-	database.save()
+	app.database.del_inbox(dbinbox['domain'])
+	app.database.save()
+
 	click.echo(f'Removed inbox from the database: {inbox}')
 
 
@@ -163,7 +165,7 @@ def cli_instance_list():
 
 	click.echo('Banned instances or relays:')
 
-	for domain in app['config'].blocked_instances:
+	for domain in app.config.blocked_instances:
 		click.echo(f'- {domain}')
 
 
@@ -172,16 +174,14 @@ def cli_instance_list():
 def cli_instance_ban(target):
 	'Ban an instance and remove the associated inbox if it exists'
 
-	config = app['config']
-	database = app['database']
-	inbox = database.get_inbox(target)
+	if target.startswith('http'):
+		target = urlparse(target).hostname
 
-	if config.ban_instance(target):
-		config.save()
+	if app.config.ban_instance(target):
+		app.config.save()
 
-		if inbox:
-			database.del_inbox(inbox)
-			database.save()
+		if app.database.del_inbox(target):
+			app.database.save()
 
 		click.echo(f'Banned instance: {target}')
 		return
@@ -194,10 +194,8 @@ def cli_instance_ban(target):
 def cli_instance_unban(target):
 	'Unban an instance'
 
-	config = app['config']
-
-	if config.unban_instance(target):
-		config.save()
+	if app.config.unban_instance(target):
+		app.config.save()
 
 		click.echo(f'Unbanned instance: {target}')
 		return
@@ -217,7 +215,7 @@ def cli_software_list():
 
 	click.echo('Banned software:')
 
-	for software in app['config'].blocked_software:
+	for software in app.config.blocked_software:
 		click.echo(f'- {software}')
 
 
@@ -229,17 +227,15 @@ def cli_software_list():
 def cli_software_ban(name, fetch_nodeinfo):
 	'Ban software. Use RELAYS for NAME to ban relays'
 
-	config = app['config']
-
 	if name == 'RELAYS':
 		for name in relay_software_names:
-			config.ban_software(name)
+			app.config.ban_software(name)
 
-		config.save()
+		app.config.save()
 		return click.echo('Banned all relay software')
 
 	if fetch_nodeinfo:
-		software = run_in_loop(fetch_nodeinfo, name)
+		software = asyncio.run(misc.fetch_nodeinfo(name))
 
 		if not software:
 			click.echo(f'Failed to fetch software name from domain: {name}')
@@ -247,7 +243,7 @@ def cli_software_ban(name, fetch_nodeinfo):
 		name = software
 
 	if config.ban_software(name):
-		config.save()
+		app.config.save()
 		return click.echo(f'Banned software: {name}')
 
 	click.echo(f'Software already banned: {name}')
@@ -261,25 +257,23 @@ def cli_software_ban(name, fetch_nodeinfo):
 def cli_software_unban(name, fetch_nodeinfo):
 	'Ban software. Use RELAYS for NAME to unban relays'
 
-	config = app['config']
-
 	if name == 'RELAYS':
 		for name in relay_software_names:
-			config.unban_software(name)
+			app.config.unban_software(name)
 
 		config.save()
 		return click.echo('Unbanned all relay software')
 
 	if fetch_nodeinfo:
-		software = run_in_loop(fetch_nodeinfo, name)
+		software = asyncio.run(misc.fetch_nodeinfo(name))
 
 		if not software:
 			click.echo(f'Failed to fetch software name from domain: {name}')
 
 		name = software
 
-	if config.unban_software(name):
-		config.save()
+	if app.config.unban_software(name):
+		app.config.save()
 		return click.echo(f'Unbanned software: {name}')
 
 	click.echo(f'Software wasn\'t banned: {name}')
@@ -296,7 +290,7 @@ def cli_whitelist():
 def cli_whitelist_list():
 	click.echo('Current whitelisted domains')
 
-	for domain in app['config'].whitelist:
+	for domain in app.config.whitelist:
 		click.echo(f'- {domain}')
 
 
@@ -305,12 +299,10 @@ def cli_whitelist_list():
 def cli_whitelist_add(instance):
 	'Add an instance to the whitelist'
 
-	config = app['config']
-
-	if not config.add_whitelist(instance):
+	if not app.config.add_whitelist(instance):
 		return click.echo(f'Instance already in the whitelist: {instance}')
 
-	config.save()
+	app.config.save()
 	click.echo(f'Instance added to the whitelist: {instance}')
 
 
@@ -319,18 +311,14 @@ def cli_whitelist_add(instance):
 def cli_whitelist_remove(instance):
 	'Remove an instance from the whitelist'
 
-	config = app['config']
-	database = app['database']
-	inbox = database.get_inbox(instance)
-
-	if not config.del_whitelist(instance):
+	if not app.config.del_whitelist(instance):
 		return click.echo(f'Instance not in the whitelist: {instance}')
 
-	config.save()
+	app.config.save()
 
-	if inbox and config.whitelist_enabled:
-		database.del_inbox(inbox)
-		database.save()
+	if app.config.whitelist_enabled:
+		if app.database.del_inbox(inbox):
+			app.database.save()
 
 	click.echo(f'Removed instance from the whitelist: {instance}')
 
@@ -339,23 +327,21 @@ def cli_whitelist_remove(instance):
 def relay_setup():
 	'Generate a new config'
 
-	config = app['config']
-
 	while True:
-		config.host = click.prompt('What domain will the relay be hosted on?', default=config.host)
+		app.config.host = click.prompt('What domain will the relay be hosted on?', default=app.config.host)
 
 		if not config.host.endswith('example.com'):
 			break
 
 		click.echo('The domain must not be example.com')
 
-	config.listen = click.prompt('Which address should the relay listen on?', default=config.listen)
+	app.config.listen = click.prompt('Which address should the relay listen on?', default=app.config.listen)
 
 	while True:
-		config.port = click.prompt('What TCP port should the relay listen on?', default=config.port, type=int)
+		app.config.port = click.prompt('What TCP port should the relay listen on?', default=app.config.port, type=int)
 		break
 
-	config.save()
+	app.config.save()
 
 	if not app['is_docker'] and click.confirm('Relay all setup! Would you like to run it now?'):
 		relay_run.callback()
@@ -365,9 +351,7 @@ def relay_setup():
 def relay_run():
 	'Run the relay'
 
-	config = app['config']
-
-	if config.host.endswith('example.com'):
+	if app.config.host.endswith('example.com'):
 		return click.echo('Relay is not set up. Please edit your relay config or run "activityrelay setup".')
 
 	vers_split = platform.python_version().split('.')
@@ -382,43 +366,10 @@ def relay_run():
 			click.echo('Warning: PyCrypto is old and should be replaced with pycryptodome')
 			return click.echo(pip_command)
 
-	if not misc.check_open_port(config.listen, config.port):
-		return click.echo(f'Error: A server is already running on port {config.port}')
+	if not misc.check_open_port(app.config.listen, app.config.port):
+		return click.echo(f'Error: A server is already running on port {app.config.port}')
 
-	# web pages
-	app.router.add_get('/', views.home)
-
-	# endpoints
-	app.router.add_post('/actor', views.inbox)
-	app.router.add_post('/inbox', views.inbox)
-	app.router.add_get('/actor', views.actor)
-	app.router.add_get('/nodeinfo/2.0.json', views.nodeinfo_2_0)
-	app.router.add_get('/.well-known/nodeinfo', views.nodeinfo_wellknown)
-	app.router.add_get('/.well-known/webfinger', views.webfinger)
-
-	if logging.DEBUG >= logging.root.level:
-		app.router.add_get('/stats', views.stats)
-
-	loop = asyncio.new_event_loop()
-	asyncio.set_event_loop(loop)
-	asyncio.ensure_future(handle_start_webserver(), loop=loop)
-	loop.run_forever()
-
-
-def run_in_loop(func, *args, **kwargs):
-	loop = asyncio.new_event_loop()
-	return loop.run_until_complete(func(*args, **kwargs))
-
-
-async def handle_start_webserver():
-	config = app['config']
-	runner = AppRunner(app, access_log_format='%{X-Forwarded-For}i "%r" %s %b "%{Referer}i" "%{User-Agent}i"')
-
-	logging.info(f'Starting webserver at {config.host} ({config.listen}:{config.port})')
-	await runner.setup()
-
-	site = TCPSite(runner, config.listen, config.port)
-	await site.start()
+	app.run()
 
 
 def main():

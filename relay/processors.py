@@ -3,108 +3,95 @@ import logging
 
 from uuid import uuid4
 
-from . import app, misc
+from . import misc
 
 
-async def handle_relay(actor, data, request):
-	cache = app['cache'].objects
-	object_id = misc.distill_object_id(data)
-
-	if object_id in cache:
-		logging.verbose(f'already relayed {object_id} as {cache[object_id]}')
+async def handle_relay(request, actor, data, software):
+	if data.objectid in request.app.cache.objects:
+		logging.verbose(f'already relayed {data.objectid}')
 		return
 
-	logging.verbose(f'Relaying post from {actor["id"]}')
+	logging.verbose(f'Relaying post from {data.actorid}')
 
-	activity_id = f"https://{request.host}/activities/{uuid4()}"
-
-	message = {
-		"@context": "https://www.w3.org/ns/activitystreams",
-		"type": "Announce",
-		"to": [f"https://{request.host}/followers"],
-		"actor": f"https://{request.host}/actor",
-		"object": object_id,
-		"id": activity_id
-	}
+	message = misc.Message.new_announce(
+		host = request.app.config.host,
+		object = data.objectid
+	)
 
 	logging.debug(f'>> relay: {message}')
 
-	inboxes = misc.distill_inboxes(actor, object_id)
+	inboxes = misc.distill_inboxes(actor, data.objectid)
 	futures = [misc.request(inbox, data=message) for inbox in inboxes]
 
 	asyncio.ensure_future(asyncio.gather(*futures))
-	cache[object_id] = activity_id
+	request.app.cache.objects[data.objectid] = message.id
 
 
-async def handle_forward(actor, data, request):
-	cache = app['cache'].objects
-	object_id = misc.distill_object_id(data)
-
-	if object_id in cache:
-		logging.verbose(f'already forwarded {object_id}')
+async def handle_forward(request, actor, data, software):
+	if data.id in request.app.cache.objects:
+		logging.verbose(f'already forwarded {data.id}')
 		return
 
-	logging.verbose(f'Forwarding post from {actor["id"]}')
+	message = misc.Message.new_announce(
+		host = request.app.config.host,
+		object = data
+	)
+
+	logging.verbose(f'Forwarding post from {actor.id}')
 	logging.debug(f'>> Relay {data}')
 
-	inboxes = misc.distill_inboxes(actor, object_id)
+	inboxes = misc.distill_inboxes(actor, data.id)
+	futures = [misc.request(inbox, data=message) for inbox in inboxes]
 
-	futures = [misc.request(inbox, data=data) for inbox in inboxes]
 	asyncio.ensure_future(asyncio.gather(*futures))
-
-	cache[object_id] = object_id
-
-
-async def handle_follow(actor, data, request):
-	config = app['config']
-	database = app['database']
-
-	inbox = misc.get_actor_inbox(actor)
-
-	if inbox not in database.inboxes:
-		database.add_inbox(inbox)
-		database.save()
-		asyncio.ensure_future(misc.follow_remote_actor(actor['id']))
-
-	message = {
-		"@context": "https://www.w3.org/ns/activitystreams",
-		"type": "Accept",
-		"to": [actor["id"]],
-		"actor": config.actor,
-
-		# this is wrong per litepub, but mastodon < 2.4 is not compliant with that profile.
-		"object": {
-			"type": "Follow",
-			"id": data["id"],
-			"object": config.actor,
-			"actor": actor["id"]
-		},
-
-		"id": f"https://{request.host}/activities/{uuid4()}",
-	}
-
-	asyncio.ensure_future(misc.request(inbox, message))
+	request.app.cache.objects[data.id] = message.id
 
 
-async def handle_undo(actor, data, request):
-	## If the activity being undone is an Announce, forward it insteead
-	if data['object']['type'] == 'Announce':
-		await handle_forward(actor, data, request)
+async def handle_follow(request, actor, data, software):
+	if not request.app.database.add_inbox(actor.shared_inbox, data.id):
+		request.app.database.set_followid(actor.id, data.id)
+
+	request.app.database.save()
+
+	await misc.request(
+		actor.shared_inbox,
+		misc.Message.new_response(
+			host = request.app.config.host,
+			actor = actor.id,
+			followid = data.id,
+			accept = True
+		)
+	)
+
+	# Are Akkoma and Pleroma the only two that expect a follow back?
+	# Ignoring only Mastodon for now
+	if software != 'mastodon':
+		await misc.request(
+			actor.shared_inbox,
+			misc.Message.new_follow(
+				host = request.app.config.host,
+				actor = actor.id
+			)
+		)
+
+
+async def handle_undo(request, actor, data, software):
+	## If the object is not a Follow, forward it
+	if data['object']['type'] != 'Follow':
+		return await handle_forward(request, actor, data, software)
+
+	if not request.app.database.del_inbox(actor.domain, data.id):
 		return
 
-	elif data['object']['type'] != 'Follow':
-		return
+	request.app.database.save()
 
-	database = app['database']
-	inbox = database.get_inbox(actor['id'])
+	message = misc.Message.new_unfollow(
+		host = request.app.config.host,
+		actor = actor.id,
+		follow = data
+	)
 
-	if not inbox:
-		return
-
-	database.del_inbox(inbox)
-	database.save()
-
-	await misc.unfollow_remote_actor(actor['id'])
+	await misc.request(actor.shared_inbox, message)
 
 
 processors = {
@@ -117,9 +104,9 @@ processors = {
 }
 
 
-async def run_processor(request, data, actor):
-	if data['type'] not in processors:
+async def run_processor(request, actor, data, software):
+	if data.type not in processors:
 		return
 
-	logging.verbose(f'New activity from actor: {actor["id"]} {data["type"]}')
-	return await processors[data['type']](actor, data, request)
+	logging.verbose(f'New "{data.type}" from actor: {actor.id}')
+	return await processors[data.type](request, actor, data, software)

@@ -2,25 +2,43 @@ import logging
 import subprocess
 import traceback
 
-from aiohttp.web import HTTPForbidden, HTTPUnauthorized, Response, json_response
-from urllib.parse import urlparse
+from pathlib import Path
 
-from . import __version__, app, misc
+from . import __version__, misc
 from .http_debug import STATS
+from .misc import DotDict, Message, Response, WKNodeinfo
 from .processors import run_processor
 
 
-try:
-	commit_label = subprocess.check_output(["git", "rev-parse", "HEAD"]).strip().decode('ascii')
-	version = f'{__version__} {commit_label}'
-
-except:
-	version = __version__
+routes = []
+version = __version__
 
 
+if Path(__file__).parent.parent.joinpath('.git').exists():
+	try:
+		commit_label = subprocess.check_output(["git", "rev-parse", "HEAD"]).strip().decode('ascii')
+		version = f'{__version__} {commit_label}'
+
+	except:
+		pass
+
+
+def register_route(method, path):
+	def wrapper(func):
+		routes.append([method, path, func])
+		return func
+
+	return wrapper
+
+
+@register_route('GET', '/')
 async def home(request):
-	targets = '<br>'.join(app['database'].hostnames)
-	text = """
+	targets = '<br>'.join(request.app.database.hostnames)
+	note = request.app.config.note
+	count = len(request.app.database.hostnames)
+	host = request.app.config.host
+
+	text = f"""
 <html><head>
 <title>ActivityPub Relay at {host}</title>
 <style>
@@ -37,132 +55,117 @@ a:hover {{ color: #8AF; }}
 <p>You may subscribe to this relay with the address: <a href="https://{host}/actor">https://{host}/actor</a></p>
 <p>To host your own relay, you may download the code at this address: <a href="https://git.pleroma.social/pleroma/relay">https://git.pleroma.social/pleroma/relay</a></p>
 <br><p>List of {count} registered instances:<br>{targets}</p>
-</body></html>""".format(host=request.host, note=app['config'].note, targets=targets, count=len(app['database'].inboxes))
+</body></html>"""
 
-	return Response(
-		status = 200,
-		content_type = 'text/html',
-		charset = 'utf-8',
-		text = text
+	return Response.new(text, ctype='html')
+
+
+@register_route('GET', '/inbox')
+@register_route('GET', '/actor')
+async def actor(request):
+	data = Message.new_actor(
+		host = request.app.config.host, 
+		pubkey = request.app.database.pubkey
 	)
 
-
-async def actor(request):
-	database = app['database']
-
-	data = {
-		"@context": "https://www.w3.org/ns/activitystreams",
-		"endpoints": {
-			"sharedInbox": f"https://{request.host}/inbox"
-		},
-		"followers": f"https://{request.host}/followers",
-		"following": f"https://{request.host}/following",
-		"inbox": f"https://{request.host}/inbox",
-		"name": "ActivityRelay",
-		"type": "Application",
-		"id": f"https://{request.host}/actor",
-		"publicKey": {
-			"id": f"https://{request.host}/actor#main-key",
-			"owner": f"https://{request.host}/actor",
-			"publicKeyPem": database.pubkey
-		},
-		"summary": "ActivityRelay bot",
-		"preferredUsername": "relay",
-		"url": f"https://{request.host}/actor"
-	}
-
-	return json_response(data, content_type='application/activity+json')
+	return Response.new(data, ctype='activity')
 
 
+@register_route('POST', '/inbox')
+@register_route('POST', '/actor')
 async def inbox(request):
-	config = app['config']
-	database = app['database']
+	config = request.app.config
+	database = request.app.database
 
 	## reject if missing signature header
-	if 'signature' not in request.headers:
+	try:
+		signature = DotDict.new_from_signature(request.headers['signature'])
+
+	except KeyError:
 		logging.verbose('Actor missing signature header')
 		raise HTTPUnauthorized(body='missing signature')
 
-	## read message and get actor id and domain
+	## read message
 	try:
-		data = await request.json()
-		actor_id = data['actor']
-		actor_domain = urlparse(actor_id).hostname
+		data = await request.json(loads=Message.new_from_json)
 
-	except KeyError:
-		logging.verbose('actor not in data')
-		raise HTTPUnauthorized(body='no actor in message')
+		## reject if there is no actor in the message
+		if 'actor' not in data:
+			logging.verbose('actor not in data')
+			return Response.new_error(400, 'no actor in message', 'json')
 
-	## reject if there is no actor in the message
 	except:
 		traceback.print_exc()
 		logging.verbose('Failed to parse inbox message')
-		raise HTTPUnauthorized(body='failed to parse message')
+		return Response.new_error(400, 'failed to parse message', 'json')
 
-	actor = await misc.request(actor_id)
+	actor = await misc.request(signature.keyid)
+	software = await misc.fetch_nodeinfo(actor.domain)
 
 	## reject if actor is empty
 	if not actor:
-		logging.verbose(f'Failed to fetch actor: {actor_id}')
-		raise HTTPUnauthorized('failed to fetch actor')
+		logging.verbose(f'Failed to fetch actor: {actor.id}')
+		return Response.new_error(400, 'failed to fetch actor', 'json')
 
 	## reject if the actor isn't whitelisted while the whiltelist is enabled
-	elif config.whitelist_enabled and not config.is_whitelisted(actor_id):
-		logging.verbose(f'Rejected actor for not being in the whitelist: {actor_id}')
-		raise HTTPForbidden(body='access denied')
+	elif config.whitelist_enabled and not config.is_whitelisted(actor.domain):
+		logging.verbose(f'Rejected actor for not being in the whitelist: {actor.id}')
+		return Response.new_error(403, 'access denied', 'json')
 
 	## reject if actor is banned
-	if app['config'].is_banned(actor_id):
-		logging.verbose(f'Ignored request from banned actor: {actor_id}')
-		raise HTTPForbidden(body='access denied')
+	if request.app['config'].is_banned(actor.domain):
+		logging.verbose(f'Ignored request from banned actor: {actor.id}')
+		return Response.new_error(403, 'access denied', 'json')
 
 	## reject if software used by actor is banned
-	if len(config.blocked_software):
-		software = await misc.fetch_nodeinfo(actor_domain)
-
-		if config.is_banned_software(software):
-			logging.verbose(f'Rejected actor for using specific software: {software}')
-			raise HTTPForbidden(body='access denied')
+	if config.is_banned_software(software):
+		logging.verbose(f'Rejected actor for using specific software: {software}')
+		return Response.new_error(403, 'access denied', 'json')
 
 	## reject if the signature is invalid
-	if not (await misc.validate_signature(actor_id, request)):
-		logging.verbose(f'signature validation failed for: {actor_id}')
-		raise HTTPUnauthorized(body='signature check failed, signature did not match key')
+	if not (await misc.validate_signature(actor, signature, request)):
+		logging.verbose(f'signature validation failed for: {actor.id}')
+		return Response.new_error(401, 'signature check failed', 'json')
 
 	## reject if activity type isn't 'Follow' and the actor isn't following
-	if data['type'] != 'Follow' and not database.get_inbox(actor_domain):
-		logging.verbose(f'Rejected actor for trying to post while not following: {actor_id}')
-		raise HTTPUnauthorized(body='access denied')
+	if data['type'] != 'Follow' and not database.get_inbox(actor.domain):
+		logging.verbose(f'Rejected actor for trying to post while not following: {actor.id}')
+		return Response.new_error(401, 'access denied', 'json')
 
 	logging.debug(f">> payload {data}")
 
-	await run_processor(request, data, actor)
-	return Response(body=b'{}', content_type='application/activity+json')
+	await run_processor(request, actor, data, software)
+	return Response.new(status=202)
 
 
+@register_route('GET', '/.well-known/webfinger')
 async def webfinger(request):
-	config = app['config']
-	subject = request.query['resource']
+	try:
+		subject = request.query['resource']
 
-	if subject != f'acct:relay@{request.host}':
-		return json_response({'error': 'user not found'}, status=404)
+	except KeyError:
+		return Response.new_error(400, 'missing \'resource\' query key', 'json')
+
+	if subject != f'acct:relay@{request.app.config.host}':
+		return Response.new_error(404, 'user not found', 'json')
 
 	data = {
 		'subject': subject,
-		'aliases': [config.actor],
+		'aliases': [request.app.config.actor],
 		'links': [
-			{'href': config.actor, 'rel': 'self', 'type': 'application/activity+json'},
-			{'href': config.actor, 'rel': 'self', 'type': 'application/ld+json; profile=\"https://www.w3.org/ns/activitystreams\"'}
+			{'href': request.app.config.actor, 'rel': 'self', 'type': 'application/activity+json'},
+			{'href': request.app.config.actor, 'rel': 'self', 'type': 'application/ld+json; profile=\"https://www.w3.org/ns/activitystreams\"'}
 		]
 	}
 
-	return json_response(data)
+	return Response.new(data, ctype='json')
 
 
+@register_route('GET', '/nodeinfo/{version:\d.\d\.json}')
 async def nodeinfo_2_0(request):
+	niversion = request.match_info['version'][:3]
 	data = {
-		# XXX - is this valid for a relay?
-		'openRegistrations': True,
+		'openRegistrations': not request.app.config.whitelist_enabled,
 		'protocols': ['activitypub'],
 		'services': {
 			'inbound': [],
@@ -179,25 +182,27 @@ async def nodeinfo_2_0(request):
 			}
 		},
 		'metadata': {
-			'peers': app['database'].hostnames
+			'peers': request.app.database.hostnames
 		},
-		'version': '2.0'
+		'version': niversion
 	}
 
-	return json_response(data)
+	if version == '2.1':
+		data['software']['repository'] = 'https://git.pleroma.social/pleroma/relay'
+
+	return Response.new(data, ctype='json')
 
 
+@register_route('GET', '/.well-known/nodeinfo')
 async def nodeinfo_wellknown(request):
-	data = {
-		'links': [
-			{
-				'rel': 'http://nodeinfo.diaspora.software/ns/schema/2.0',
-				'href': f'https://{request.host}/nodeinfo/2.0.json'
-			}
-		]
-	}
-	return json_response(data)
+	data = WKNodeinfo.new(
+		v20 = f'https://{request.app.config.host}/nodeinfo/2.0.json',
+		v21 = f'https://{request.app.config.host}/nodeinfo/2.1.json'
+	)
+
+	return Response.new(data, ctype='json')
 
 
+@register_route('GET', '/stats')
 async def stats(request):
-    return json_response(STATS)
+    return Response.new(STATS, ctype='json')
