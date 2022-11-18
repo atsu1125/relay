@@ -175,11 +175,6 @@ class RelayDatabase(dict):
 		return False
 
 
-	def set_followid(self, domain, followid):
-		data = self.get_inbox(domain, fail=True)
-		data['followid'] = followid
-
-
 	def get_request(self, domain, fail=True):
 		if domain.startswith('http'):
 			domain = urlparse(domain).hostname

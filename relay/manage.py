@@ -128,11 +128,13 @@ def cli_inbox_add(inbox):
 	if app.config.is_banned(inbox):
 		return click.echo(f'Error: Refusing to add banned inbox: {inbox}')
 
-	if app.database.add_inbox(inbox):
-		app.database.save()
-		return click.echo(f'Added inbox to the database: {inbox}')
+	if app.database.get_inbox(inbox):
+		return click.echo(f'Error: Inbox already in database: {inbox}')
 
-	click.echo(f'Error: Inbox already in database: {inbox}')
+	app.database.add_inbox(inbox)
+	app.database.save()
+
+	click.echo(f'Added inbox to the database: {inbox}')
 
 
 @cli_inbox.command('remove')
