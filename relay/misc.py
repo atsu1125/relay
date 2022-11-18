@@ -141,11 +141,10 @@ async def fetch_nodeinfo(domain):
 
 	nodeinfo = await request(nodeinfo_url, sign_headers=False, activity=False)
 
-	try:
-		return nodeinfo['software']['name']
-
-	except KeyError:
+	if not nodeinfo:
 		return False
+
+	return Nodeinfo(nodeinfo)
 
 
 async def request(uri, data=None, force=False, sign_headers=True, activity=True):
@@ -457,6 +456,12 @@ class Message(DotDict):
 			return self.object.id
 
 		return self.object
+
+
+class Nodeinfo(DotDict):
+	@property
+	def swname(self):
+		return self.software.name
 
 
 class Response(AiohttpResponse):

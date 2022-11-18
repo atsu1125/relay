@@ -235,18 +235,16 @@ def cli_software_ban(name, fetch_nodeinfo):
 		return click.echo('Banned all relay software')
 
 	if fetch_nodeinfo:
-		software = asyncio.run(misc.fetch_nodeinfo(name))
+		nodeinfo = asyncio.run(misc.fetch_nodeinfo(name))
 
 		if not software:
 			click.echo(f'Failed to fetch software name from domain: {name}')
 
-		name = software
-
-	if config.ban_software(name):
+	if config.ban_software(nodeinfo.swname):
 		app.config.save()
-		return click.echo(f'Banned software: {name}')
+		return click.echo(f'Banned software: {nodeinfo.swname}')
 
-	click.echo(f'Software already banned: {name}')
+	click.echo(f'Software already banned: {nodeinfo.swname}')
 
 
 @cli_software.command('unban')
@@ -265,18 +263,16 @@ def cli_software_unban(name, fetch_nodeinfo):
 		return click.echo('Unbanned all relay software')
 
 	if fetch_nodeinfo:
-		software = asyncio.run(misc.fetch_nodeinfo(name))
+		nodeinfo = asyncio.run(misc.fetch_nodeinfo(name))
 
-		if not software:
+		if not nodeinfo:
 			click.echo(f'Failed to fetch software name from domain: {name}')
 
-		name = software
-
-	if app.config.unban_software(name):
+	if app.config.unban_software(nodeinfo.swname):
 		app.config.save()
-		return click.echo(f'Unbanned software: {name}')
+		return click.echo(f'Unbanned software: {nodeinfo.swname}')
 
-	click.echo(f'Software wasn\'t banned: {name}')
+	click.echo(f'Software wasn\'t banned: {nodeinfo.swname}')
 
 
 

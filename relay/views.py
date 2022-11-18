@@ -100,7 +100,7 @@ async def inbox(request):
 		return Response.new_error(400, 'failed to parse message', 'json')
 
 	actor = await misc.request(signature.keyid)
-	software = await misc.fetch_nodeinfo(actor.domain)
+	nodeinfo = await misc.fetch_nodeinfo(actor.domain)
 
 	## reject if actor is empty
 	if not actor:
@@ -118,8 +118,8 @@ async def inbox(request):
 		return Response.new_error(403, 'access denied', 'json')
 
 	## reject if software used by actor is banned
-	if config.is_banned_software(software):
-		logging.verbose(f'Rejected actor for using specific software: {software}')
+	if config.is_banned_software(nodeinfo.swname):
+		logging.verbose(f'Rejected actor for using specific software: {nodeinfo.swname}')
 		return Response.new_error(403, 'access denied', 'json')
 
 	## reject if the signature is invalid
@@ -134,7 +134,7 @@ async def inbox(request):
 
 	logging.debug(f">> payload {data}")
 
-	await run_processor(request, actor, data, software)
+	await run_processor(request, actor, data, nodeinfo)
 	return Response.new(status=202)
 
 

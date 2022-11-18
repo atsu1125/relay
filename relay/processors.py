@@ -6,7 +6,7 @@ from uuid import uuid4
 from . import misc
 
 
-async def handle_relay(request, actor, data, software):
+async def handle_relay(request, actor, data, nodeinfo):
 	if data.objectid in request.app.cache.objects:
 		logging.verbose(f'already relayed {data.objectid}')
 		return
@@ -27,7 +27,7 @@ async def handle_relay(request, actor, data, software):
 	request.app.cache.objects[data.objectid] = message.id
 
 
-async def handle_forward(request, actor, data, software):
+async def handle_forward(request, actor, data, nodeinfo):
 	if data.id in request.app.cache.objects:
 		logging.verbose(f'already forwarded {data.id}')
 		return
@@ -47,7 +47,7 @@ async def handle_forward(request, actor, data, software):
 	request.app.cache.objects[data.id] = message.id
 
 
-async def handle_follow(request, actor, data, software):
+async def handle_follow(request, actor, data, nodeinfo):
 	if not request.app.database.add_inbox(actor.shared_inbox, data.id):
 		request.app.database.set_followid(actor.id, data.id)
 
@@ -65,7 +65,7 @@ async def handle_follow(request, actor, data, software):
 
 	# Are Akkoma and Pleroma the only two that expect a follow back?
 	# Ignoring only Mastodon for now
-	if software != 'mastodon':
+	if nodeinfo.swname != 'mastodon':
 		await misc.request(
 			actor.shared_inbox,
 			misc.Message.new_follow(
@@ -75,10 +75,10 @@ async def handle_follow(request, actor, data, software):
 		)
 
 
-async def handle_undo(request, actor, data, software):
+async def handle_undo(request, actor, data, nodeinfo):
 	## If the object is not a Follow, forward it
 	if data['object']['type'] != 'Follow':
-		return await handle_forward(request, actor, data, software)
+		return await handle_forward(request, actor, data, nodeinfo)
 
 	if not request.app.database.del_inbox(actor.domain, data.id):
 		return
@@ -104,9 +104,9 @@ processors = {
 }
 
 
-async def run_processor(request, actor, data, software):
+async def run_processor(request, actor, data, nodeinfo):
 	if data.type not in processors:
 		return
 
 	logging.verbose(f'New "{data.type}" from actor: {actor.id}')
-	return await processors[data.type](request, actor, data, software)
+	return await processors[data.type](request, actor, data, nodeinfo)
