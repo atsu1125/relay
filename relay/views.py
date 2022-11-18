@@ -140,7 +140,11 @@ async def inbox(request):
 
 @register_route('GET', '/.well-known/webfinger')
 async def webfinger(request):
-	subject = request.query['resource']
+	try:
+		subject = request.query['resource']
+
+	except KeyError:
+		return Response.new_error(400, 'missing \'resource\' query key', 'json')
 
 	if subject != f'acct:relay@{request.app.config.host}':
 		return Response.new_error(404, 'user not found', 'json')
