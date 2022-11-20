@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import subprocess
 import traceback
@@ -137,7 +138,7 @@ async def inbox(request):
 
 	logging.debug(f">> payload {request.message.to_json(4)}")
 
-	await run_processor(request)
+	asyncio.ensure_future(run_processor(request))
 	return Response.new(status=202)
 
 

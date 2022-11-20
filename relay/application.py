@@ -1,7 +1,9 @@
 import asyncio
 import logging
 import os
+import queue
 import signal
+import threading
 
 from aiohttp import web
 from cachetools import LRUCache
@@ -9,7 +11,7 @@ from datetime import datetime, timedelta
 
 from .config import RelayConfig
 from .database import RelayDatabase
-from .misc import DotDict, check_open_port, fetch_nodeinfo, set_app
+from .misc import DotDict, check_open_port, request, set_app
 from .views import routes
 
 
@@ -27,6 +29,8 @@ class Application(web.Application):
 
 		self['cache'] = DotDict({key: Cache(maxsize=self['config'][key]) for key in self['config'].cachekeys})
 		self['semaphore'] = asyncio.Semaphore(self['config'].push_limit)
+		self['workers'] = []
+		self['last_worker'] = 0
 
 		set_app(self)
 
@@ -71,6 +75,16 @@ class Application(web.Application):
 		return timedelta(seconds=uptime.seconds)
 
 
+	def push_message(self, inbox, message):
+		worker = self['workers'][self['last_worker']]
+		worker.queue.put((inbox, message))
+
+		self['last_worker'] += 1
+
+		if self['last_worker'] >= len(self['workers']):
+			self['last_worker'] = 0
+
+
 	def set_signal_handler(self):
 		for sig in {'SIGHUP', 'SIGINT', 'SIGQUIT', 'SIGTERM'}:
 			try:
@@ -102,6 +116,13 @@ class Application(web.Application):
 	async def handle_run(self):
 		self['running'] = True
 
+		if self.config.workers > 0:
+			for i in range(self.config.workers):
+				worker = PushWorker(self)
+				worker.start()
+
+				self['workers'].append(worker)
+
 		runner = web.AppRunner(self, access_log_format='%{X-Forwarded-For}i "%r" %s %b "%{User-Agent}i"')
 		await runner.setup()
 
@@ -121,11 +142,36 @@ class Application(web.Application):
 
 		self['starttime'] = None
 		self['running'] = False
+		self['workers'].clear()
 
 
 class Cache(LRUCache):
 	def set_maxsize(self, value):
 		self.__maxsize = int(value)
+
+
+class PushWorker(threading.Thread):
+	def __init__(self, app):
+		threading.Thread.__init__(self)
+		self.app = app
+		self.queue = queue.Queue()
+
+
+	def run(self):
+		asyncio.run(self.handle_queue())
+
+
+	async def handle_queue(self):
+		while self.app['running']:
+			try:
+				inbox, message = self.queue.get(block=True, timeout=0.25)
+				self.queue.task_done()
+				await request(inbox, message)
+
+				logging.verbose(f'New push from Thread-{threading.get_ident()}')
+
+			except queue.Empty:
+				pass
 
 
 ## Can't sub-class web.Request, so let's just add some properties

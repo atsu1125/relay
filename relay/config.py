@@ -50,7 +50,7 @@ class RelayConfig(DotDict):
 		if key in ['blocked_instances', 'blocked_software', 'whitelist']:
 			assert isinstance(value, (list, set, tuple))
 
-		elif key in ['port', 'json', 'objects', 'digests']:
+		elif key in ['port', 'workers', 'json', 'objects', 'digests']:
 			assert isinstance(value, (int))
 
 		elif key == 'whitelist_enabled':
@@ -92,6 +92,7 @@ class RelayConfig(DotDict):
 			'port': 8080,
 			'note': 'Make a note about your instance here.',
 			'push_limit': 512,
+			'workers': 0,
 			'host': 'relay.example.com',
 			'blocked_software': [],
 			'blocked_instances': [],
@@ -233,6 +234,7 @@ class RelayConfig(DotDict):
 			'port': self.port,
 			'note': self.note,
 			'push_limit': self.push_limit,
+			'workers': self.workers,
 			'ap': {key: self[key] for key in self.apkeys},
 			'cache': {key: self[key] for key in self.cachekeys}
 		}

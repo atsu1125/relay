@@ -11,20 +11,24 @@ async def handle_relay(request):
 		logging.verbose(f'already relayed {request.message.objectid}')
 		return
 
-	logging.verbose(f'Relaying post from {request.message.actorid}')
-
 	message = misc.Message.new_announce(
 		host = request.config.host,
 		object = request.message.objectid
 	)
 
+	request.cache.objects[request.message.objectid] = message.id
+	logging.verbose(f'Relaying post from {request.message.actorid}')
 	logging.debug(f'>> relay: {message}')
 
 	inboxes = misc.distill_inboxes(request.actor, request.message.objectid)
-	futures = [misc.request(inbox, data=message) for inbox in inboxes]
 
-	asyncio.ensure_future(asyncio.gather(*futures))
-	request.cache.objects[request.message.objectid] = message.id
+	if request.config.workers > 0:
+		for inbox in inboxes:
+			request.app.push_message(inbox, message)
+
+	else:
+		futures = [misc.request(inbox, data=message) for inbox in inboxes]
+		asyncio.ensure_future(asyncio.gather(*futures))
 
 
 async def handle_forward(request):
@@ -37,14 +41,19 @@ async def handle_forward(request):
 		object = request.message
 	)
 
+	request.cache.objects[request.message.id] = message.id
 	logging.verbose(f'Forwarding post from {request.actor.id}')
 	logging.debug(f'>> Relay {request.message}')
 
-	inboxes = misc.distill_inboxes(request.actor, request.message.id)
-	futures = [misc.request(inbox, data=message) for inbox in inboxes]
+	inboxes = misc.distill_inboxes(request.actor, request.message.objectid)
 
-	asyncio.ensure_future(asyncio.gather(*futures))
-	request.cache.objects[request.message.id] = message.id
+	if request.config.workers > 0:
+		for inbox in inboxes:
+			request.app.push_message(inbox, message)
+
+	else:
+		futures = [misc.request(inbox, data=message) for inbox in inboxes]
+		asyncio.ensure_future(asyncio.gather(*futures))
 
 
 async def handle_follow(request):
