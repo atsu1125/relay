@@ -113,5 +113,12 @@ async def run_processor(request):
 	if request.message.type not in processors:
 		return
 
+	if request.instance and not request.instance.get('software'):
+		nodeinfo = await misc.fetch_nodeinfo(request.instance.domain)
+
+		if nodeinfo:
+			request.instance[nodeinfo] = nodeinfo.swname
+			request.database.save()
+
 	logging.verbose(f'New "{request.message.type}" from actor: {request.actor.id}')
 	return await processors[request.message.type](request)

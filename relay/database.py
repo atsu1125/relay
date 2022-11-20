@@ -83,14 +83,6 @@ class RelayDatabase(dict):
 					self.del_inbox(domain)
 					continue
 
-				if not instance.get('software'):
-					nodeinfo = asyncio.run(fetch_nodeinfo(domain))
-
-					if not nodeinfo:
-						continue
-
-					instance['software'] = nodeinfo.swname
-
 			new_db = False
 
 		except FileNotFoundError:

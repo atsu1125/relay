@@ -134,6 +134,11 @@ def request_actor(self):
 	except KeyError: pass
 
 
+def request_instance(self):
+	try: return self['instance']
+	except KeyError: pass
+
+
 def request_message(self):
 	try: return self['message']
 	except KeyError: pass
@@ -148,6 +153,7 @@ def request_signature(self):
 
 
 setattr(web.Request, 'actor', property(request_actor))
+setattr(web.Request, 'instance', property(request_instance))
 setattr(web.Request, 'message', property(request_message))
 setattr(web.Request, 'signature', property(request_signature))
 

@@ -113,6 +113,8 @@ async def inbox(request):
 		logging.verbose(f'Failed to fetch actor: {request.signature.keyid}')
 		return Response.new_error(400, 'failed to fetch actor', 'json')
 
+	request['instance'] = request.database.get_inbox(request['actor'].inbox)
+
 	## reject if the actor isn't whitelisted while the whiltelist is enabled
 	if config.whitelist_enabled and not config.is_whitelisted(request.actor.domain):
 		logging.verbose(f'Rejected actor for not being in the whitelist: {request.actor.id}')
