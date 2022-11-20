@@ -12,6 +12,7 @@ from .config import relay_software_names
 
 
 app = None
+CONFIG_IGNORE = {'blocked_software', 'blocked_instances', 'whitelist'}
 
 
 @click.group('cli', context_settings={'show_default': True}, invoke_without_command=True)
@@ -30,9 +31,37 @@ def cli(ctx, config):
 			relay_run.callback()
 
 
-@cli.group('inbox')
+# todo: add config default command for resetting config key
+@cli.group('config', invoke_without_command=True)
 @click.pass_context
-def cli_inbox(ctx):
+def cli_config(ctx):
+	'List the current relay config'
+
+	if ctx.invoked_subcommand:
+		return
+
+	click.echo('Relay Config:')
+
+	for key, value in app.config.items():
+		if key not in CONFIG_IGNORE:
+			key = f'{key}:'.ljust(20)
+			click.echo(f'- {key} {value}')
+
+
+@cli_config.command('set')
+@click.argument('key')
+@click.argument('value')
+def cli_config_set(key, value):
+	'Set a config value'
+
+	app.config[key] = value
+	app.config.save()
+
+	print(f'{key}: {app.config[key]}')
+
+
+@cli.group('inbox')
+def cli_inbox():
 	'Manage the inboxes in the database'
 	pass
 

@@ -50,6 +50,37 @@ def build_signing_string(headers, used_headers):
 	return '\n'.join(map(lambda x: ': '.join([x.lower(), headers[x]]), used_headers))
 
 
+def boolean(value):
+	if isinstance(value, str):
+		if value.lower() in ['on', 'y', 'yes', 'true', 'enable', 'enabled', '1']:
+			return True
+
+		elif value.lower() in ['off', 'n', 'no', 'false', 'disable', 'disable', '0']:
+			return False
+
+		else:
+			raise TypeError(f'Cannot parse string "{value}" as a boolean')
+
+	elif isinstance(value, int):
+		if value == 1:
+			return True
+
+		elif value == 0:
+			return False
+
+		else:
+			raise ValueError('Integer value must be 1 or 0')
+
+	elif value == None:
+		return False
+
+	try:
+		return value.__bool__()
+
+	except AttributeError:
+		raise TypeError(f'Cannot convert object of type "{clsname(value)}"')
+
+
 def check_open_port(host, port):
 	if host == '0.0.0.0':
 		host = '127.0.0.1'

@@ -4,7 +4,7 @@ import yaml
 from pathlib import Path
 from urllib.parse import urlparse
 
-from .misc import DotDict
+from .misc import DotDict, boolean
 
 
 relay_software_names = [
@@ -51,10 +51,12 @@ class RelayConfig(DotDict):
 			assert isinstance(value, (list, set, tuple))
 
 		elif key in ['port', 'workers', 'json', 'objects', 'digests']:
-			assert isinstance(value, (int))
+			if not isinstance(value, int):
+				value = int(value)
 
 		elif key == 'whitelist_enabled':
-			assert isinstance(value, bool)
+			if not isinstance(value, bool):
+				value = boolean(value)
 
 		super().__setitem__(key, value)
 
@@ -215,6 +217,8 @@ class RelayConfig(DotDict):
 						continue
 
 					self[k] = v
+
+				continue
 
 			elif key not in self:
 				continue
