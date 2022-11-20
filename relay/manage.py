@@ -25,10 +25,59 @@ def cli(ctx, config):
 
 	if not ctx.invoked_subcommand:
 		if app.config.host.endswith('example.com'):
-			relay_setup.callback()
+			cli_setup.callback()
 
 		else:
-			relay_run.callback()
+			cli_run.callback()
+
+
+@cli.command('setup')
+def cli_setup():
+	'Generate a new config'
+
+	while True:
+		app.config.host = click.prompt('What domain will the relay be hosted on?', default=app.config.host)
+
+		if not config.host.endswith('example.com'):
+			break
+
+		click.echo('The domain must not be example.com')
+
+	app.config.listen = click.prompt('Which address should the relay listen on?', default=app.config.listen)
+
+	while True:
+		app.config.port = click.prompt('What TCP port should the relay listen on?', default=app.config.port, type=int)
+		break
+
+	app.config.save()
+
+	if not app['is_docker'] and click.confirm('Relay all setup! Would you like to run it now?'):
+		cli_run.callback()
+
+
+@cli.command('run')
+def cli_run():
+	'Run the relay'
+
+	if app.config.host.endswith('example.com'):
+		return click.echo('Relay is not set up. Please edit your relay config or run "activityrelay setup".')
+
+	vers_split = platform.python_version().split('.')
+	pip_command = 'pip3 uninstall pycrypto && pip3 install pycryptodome'
+
+	if Crypto.__version__ == '2.6.1':
+		if int(vers_split[1]) > 7:
+			click.echo('Error: PyCrypto is broken on Python 3.8+. Please replace it with pycryptodome before running again. Exiting...')
+			return click.echo(pip_command)
+
+		else:
+			click.echo('Warning: PyCrypto is old and should be replaced with pycryptodome')
+			return click.echo(pip_command)
+
+	if not misc.check_open_port(app.config.listen, app.config.port):
+		return click.echo(f'Error: A server is already running on port {app.config.port}')
+
+	app.run()
 
 
 # todo: add config default command for resetting config key
@@ -348,55 +397,6 @@ def cli_whitelist_remove(instance):
 			app.database.save()
 
 	click.echo(f'Removed instance from the whitelist: {instance}')
-
-
-@cli.command('setup')
-def relay_setup():
-	'Generate a new config'
-
-	while True:
-		app.config.host = click.prompt('What domain will the relay be hosted on?', default=app.config.host)
-
-		if not config.host.endswith('example.com'):
-			break
-
-		click.echo('The domain must not be example.com')
-
-	app.config.listen = click.prompt('Which address should the relay listen on?', default=app.config.listen)
-
-	while True:
-		app.config.port = click.prompt('What TCP port should the relay listen on?', default=app.config.port, type=int)
-		break
-
-	app.config.save()
-
-	if not app['is_docker'] and click.confirm('Relay all setup! Would you like to run it now?'):
-		relay_run.callback()
-
-
-@cli.command('run')
-def relay_run():
-	'Run the relay'
-
-	if app.config.host.endswith('example.com'):
-		return click.echo('Relay is not set up. Please edit your relay config or run "activityrelay setup".')
-
-	vers_split = platform.python_version().split('.')
-	pip_command = 'pip3 uninstall pycrypto && pip3 install pycryptodome'
-
-	if Crypto.__version__ == '2.6.1':
-		if int(vers_split[1]) > 7:
-			click.echo('Error: PyCrypto is broken on Python 3.8+. Please replace it with pycryptodome before running again. Exiting...')
-			return click.echo(pip_command)
-
-		else:
-			click.echo('Warning: PyCrypto is old and should be replaced with pycryptodome')
-			return click.echo(pip_command)
-
-	if not misc.check_open_port(app.config.listen, app.config.port):
-		return click.echo(f'Error: A server is already running on port {app.config.port}')
-
-	app.run()
 
 
 def main():
