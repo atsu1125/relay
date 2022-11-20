@@ -105,7 +105,12 @@ async def inbox(request):
 
 	## reject if actor is empty
 	if not request.actor:
-		logging.verbose(f'Failed to fetch actor: {request.actor.id}')
+		## ld signatures aren't handled atm, so just ignore it
+		if data.type == 'Delete':
+			logging.verbose(f'Instance sent a delete which cannot be handled')
+			return Response.new(status=202)
+
+		logging.verbose(f'Failed to fetch actor: {request.signature.keyid}')
 		return Response.new_error(400, 'failed to fetch actor', 'json')
 
 	## reject if the actor isn't whitelisted while the whiltelist is enabled
