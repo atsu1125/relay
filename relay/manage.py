@@ -146,11 +146,15 @@ def cli_inbox_follow(actor):
 
 	except KeyError:
 		actor_data = asyncio.run(misc.request(actor))
+
+		if not actor_data:
+			return click.echo(f'Failed to fetch actor: {actor}')
+
 		inbox = actor_data.shared_inbox
 
 	message = misc.Message.new_follow(
 		host = app.config.host,
-		actor = actor.id
+		actor = actor
 	)
 
 	asyncio.run(misc.request(inbox, message))
