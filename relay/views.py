@@ -107,7 +107,7 @@ async def inbox(request):
 	## reject if actor is empty
 	if not request.actor:
 		## ld signatures aren't handled atm, so just ignore it
-		if data.type == 'Delete':
+		if request['message'].type == 'Delete':
 			logging.verbose(f'Instance sent a delete which cannot be handled')
 			return Response.new(status=202)
 
