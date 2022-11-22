@@ -10,6 +10,7 @@ from Crypto.Hash import SHA, SHA256, SHA512
 from Crypto.PublicKey import RSA
 from Crypto.Signature import PKCS1_v1_5
 from aiohttp import ClientSession
+from aiohttp.client_exceptions import ClientConnectorError
 from aiohttp.hdrs import METH_ALL as METHODS
 from aiohttp.web import Response as AiohttpResponse, View as AiohttpView
 from datetime import datetime
@@ -260,6 +261,11 @@ async def request(uri, data=None, force=False, sign_headers=True, activity=True)
 				return resp_data
 
 	except JSONDecodeError:
+		logging.verbose(f'Failed to parse JSON')
+		return
+
+	except ClientConnectorError:
+		logging.verbose(f'Failed to connect to {url.netloc}')
 		return
 
 	except Exception:
