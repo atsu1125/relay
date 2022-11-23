@@ -330,7 +330,7 @@ def relay_setup():
 	while True:
 		app.config.host = click.prompt('What domain will the relay be hosted on?', default=app.config.host)
 
-		if not config.host.endswith('example.com'):
+		if not app.config.host.endswith('example.com'):
 			break
 
 		click.echo('The domain must not be example.com')
