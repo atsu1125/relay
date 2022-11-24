@@ -9,8 +9,8 @@ import uuid
 from Crypto.Hash import SHA, SHA256, SHA512
 from Crypto.PublicKey import RSA
 from Crypto.Signature import PKCS1_v1_5
-from aiohttp import ClientSession
-from aiohttp.client_exceptions import ClientConnectorError
+from aiohttp import ClientSession, ClientTimeout
+from aiohttp.client_exceptions import ClientConnectorError, ServerTimeoutError
 from aiohttp.hdrs import METH_ALL as METHODS
 from aiohttp.web import Response as AiohttpResponse, View as AiohttpView
 from datetime import datetime
@@ -179,7 +179,7 @@ async def fetch_nodeinfo(domain):
 	return Nodeinfo(nodeinfo)
 
 
-async def request(uri, data=None, force=False, sign_headers=True, activity=True):
+async def request(uri, data=None, force=False, sign_headers=True, activity=True, timeout=10):
 	## If a get request and not force, try to use the cache first
 	if not data and not force:
 		try:
@@ -229,7 +229,8 @@ async def request(uri, data=None, force=False, sign_headers=True, activity=True)
 		else:
 			logging.verbose(f'Sending GET request to url: {uri}')
 
-		async with ClientSession(trace_configs=http_debug()) as session, app.semaphore:
+		timeout_cfg = ClientTimeout(connect=timeout)
+		async with ClientSession(trace_configs=http_debug(), timeout=timeout_cfg) as session, app.semaphore:
 			async with session.request(method, uri, headers=headers, data=data) as resp:
 				## aiohttp has been known to leak if the response hasn't been read,
 				## so we're just gonna read the request no matter what
@@ -264,7 +265,7 @@ async def request(uri, data=None, force=False, sign_headers=True, activity=True)
 		logging.verbose(f'Failed to parse JSON')
 		return
 
-	except ClientConnectorError:
+	except (ClientConnectorError, ServerTimeoutError):
 		logging.verbose(f'Failed to connect to {url.netloc}')
 		return
 
