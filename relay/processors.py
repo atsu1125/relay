@@ -123,10 +123,10 @@ async def run_processor(request):
 		return
 
 	if request.instance and not request.instance.get('software'):
-		nodeinfo = await misc.fetch_nodeinfo(request.instance.domain)
+		nodeinfo = await misc.fetch_nodeinfo(request.instance['domain'])
 
 		if nodeinfo:
-			request.instance[nodeinfo] = nodeinfo.swname
+			request.instance['software'] = nodeinfo.swname
 			request.database.save()
 
 	logging.verbose(f'New "{request.message.type}" from actor: {request.actor.id}')
