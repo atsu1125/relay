@@ -397,7 +397,7 @@ def cli_whitelist_remove(instance):
 	app.config.save()
 
 	if app.config.whitelist_enabled:
-		if app.database.del_inbox(inbox):
+		if app.database.del_inbox(instance):
 			app.database.save()
 
 	click.echo(f'Removed instance from the whitelist: {instance}')
