@@ -71,6 +71,7 @@ class RelayDatabase(dict):
 				for item in data.get('relay-list', []):
 					domain = urlparse(item).hostname
 					self['relay-list'][domain] = {
+						'domain': domain,
 						'inbox': item,
 						'followid': None
 					}
@@ -82,6 +83,9 @@ class RelayDatabase(dict):
 				if self.config.is_banned(domain) or (self.config.whitelist_enabled and not self.config.is_whitelisted(domain)):
 					self.del_inbox(domain)
 					continue
+
+				if not instance.get('domain'):
+					instance['domain'] = domain
 
 			new_db = False
 
