@@ -1,63 +1,55 @@
 import asyncio
 import logging
 
+from cachetools import LRUCache
 from uuid import uuid4
 
-from . import misc
+from .misc import Message, distill_inboxes
+
+
+cache = LRUCache(1024)
 
 
 async def handle_relay(request):
-	if request.message.objectid in request.cache.objects:
+	if request.message.objectid in cache:
 		logging.verbose(f'already relayed {request.message.objectid}')
 		return
 
-	message = misc.Message.new_announce(
+	message = Message.new_announce(
 		host = request.config.host,
 		object = request.message.objectid
 	)
 
-	request.cache.objects[request.message.objectid] = message.id
-	logging.verbose(f'Relaying post from {request.message.actorid}')
+	cache[request.message.objectid] = message.id
 	logging.debug(f'>> relay: {message}')
 
-	inboxes = misc.distill_inboxes(request.actor, request.message.objectid)
+	inboxes = distill_inboxes(request.actor, request.message.objectid)
 
-	if request.config.workers > 0:
-		for inbox in inboxes:
-			request.app.push_message(inbox, message)
-
-	else:
-		futures = [misc.request(inbox, data=message) for inbox in inboxes]
-		asyncio.ensure_future(asyncio.gather(*futures))
+	for inbox in inboxes:
+		request.app.push_message(inbox, message)
 
 
 async def handle_forward(request):
-	if request.message.id in request.cache.objects:
+	if request.message.id in cache:
 		logging.verbose(f'already forwarded {request.message.id}')
 		return
 
-	message = misc.Message.new_announce(
+	message = Message.new_announce(
 		host = request.config.host,
 		object = request.message
 	)
 
-	request.cache.objects[request.message.id] = message.id
-	logging.verbose(f'Forwarding post from {request.actor.id}')
-	logging.debug(f'>> Relay {request.message}')
+	cache[request.message.id] = message.id
+	logging.debug(f'>> forward: {message}')
 
-	inboxes = misc.distill_inboxes(request.actor, request.message.objectid)
+	inboxes = distill_inboxes(request.actor, request.message.objectid)
 
-	if request.config.workers > 0:
-		for inbox in inboxes:
-			request.app.push_message(inbox, message)
-
-	else:
-		futures = [misc.request(inbox, data=message) for inbox in inboxes]
-		asyncio.ensure_future(asyncio.gather(*futures))
+	for inbox in inboxes:
+		request.app.push_message(inbox, message)
 
 
 async def handle_follow(request):
-	nodeinfo = await misc.fetch_nodeinfo(request.actor.domain)
+	nodeinfo = await request.app.client.fetch_nodeinfo(request.actor.domain)
 	software = nodeinfo.swname if nodeinfo else None
 
 	## reject if software used by actor is banned
@@ -67,9 +59,9 @@ async def handle_follow(request):
 	request.database.add_inbox(request.actor.shared_inbox, request.message.id, software)
 	request.database.save()
 
-	await misc.request(
+	await request.app.push_message(
 		request.actor.shared_inbox,
-		misc.Message.new_response(
+		Message.new_response(
 			host = request.config.host,
 			actor = request.actor.id,
 			followid = request.message.id,
@@ -80,9 +72,9 @@ async def handle_follow(request):
 	# Are Akkoma and Pleroma the only two that expect a follow back?
 	# Ignoring only Mastodon for now
 	if software != 'mastodon':
-		await misc.request(
+		await request.app.push_message(
 			request.actor.shared_inbox,
-			misc.Message.new_follow(
+			Message.new_follow(
 				host = request.config.host,
 				actor = request.actor.id
 			)
@@ -99,13 +91,14 @@ async def handle_undo(request):
 
 	request.database.save()
 
-	message = misc.Message.new_unfollow(
-		host = request.config.host,
-		actor = request.actor.id,
-		follow = request.message
+	await request.app.push_message(
+		request.actor.shared_inbox,
+		Message.new_unfollow(
+			host = request.config.host,
+			actor = request.actor.id,
+			follow = request.message
+		)
 	)
-
-	await misc.request(request.actor.shared_inbox, message)
 
 
 processors = {
@@ -123,7 +116,7 @@ async def run_processor(request):
 		return
 
 	if request.instance and not request.instance.get('software'):
-		nodeinfo = await misc.fetch_nodeinfo(request.instance['domain'])
+		nodeinfo = await request.app.client.fetch_nodeinfo(request.instance['domain'])
 
 		if nodeinfo:
 			request.instance['software'] = nodeinfo.swname

@@ -6,12 +6,12 @@ import signal
 import threading
 
 from aiohttp import web
-from cachetools import LRUCache
 from datetime import datetime, timedelta
 
 from .config import RelayConfig
 from .database import RelayDatabase
-from .misc import DotDict, check_open_port, request, set_app
+from .http_client import HttpClient
+from .misc import DotDict, check_open_port, set_app
 from .views import routes
 
 
@@ -27,8 +27,6 @@ class Application(web.Application):
 		if not self['config'].load():
 			self['config'].save()
 
-		self['cache'] = DotDict({key: Cache(maxsize=self['config'][key]) for key in self['config'].cachekeys})
-		self['semaphore'] = asyncio.Semaphore(self['config'].push_limit)
 		self['workers'] = []
 		self['last_worker'] = 0
 
@@ -37,12 +35,18 @@ class Application(web.Application):
 		self['database'] = RelayDatabase(self['config'])
 		self['database'].load()
 
+		self['client'] = HttpClient(
+			limit = self.config.push_limit,
+			timeout = self.config.timeout,
+			cache_size = self.config.json_cache
+		)
+
 		self.set_signal_handler()
 
 
 	@property
-	def cache(self):
-		return self['cache']
+	def client(self):
+		return self['client']
 
 
 	@property
@@ -76,6 +80,9 @@ class Application(web.Application):
 
 
 	def push_message(self, inbox, message):
+		if self.config.workers <= 0:
+			return asyncio.ensure_future(self.client.post(inbox, message))
+
 		worker = self['workers'][self['last_worker']]
 		worker.queue.put((inbox, message))
 
@@ -145,11 +152,6 @@ class Application(web.Application):
 		self['workers'].clear()
 
 
-class Cache(LRUCache):
-	def set_maxsize(self, value):
-		self.__maxsize = int(value)
-
-
 class PushWorker(threading.Thread):
 	def __init__(self, app):
 		threading.Thread.__init__(self)
@@ -158,6 +160,12 @@ class PushWorker(threading.Thread):
 
 
 	def run(self):
+		self.client = HttpClient(
+			limit = self.app.config.push_limit,
+			timeout = self.app.config.timeout,
+			cache_size = self.app.config.json_cache
+		)
+
 		asyncio.run(self.handle_queue())
 
 
@@ -166,12 +174,13 @@ class PushWorker(threading.Thread):
 			try:
 				inbox, message = self.queue.get(block=True, timeout=0.25)
 				self.queue.task_done()
-				await request(inbox, message)
-
 				logging.verbose(f'New push from Thread-{threading.get_ident()}')
+				await self.client.post(inbox, message)
 
 			except queue.Empty:
 				pass
+
+		await self.client.close()
 
 
 ## Can't sub-class web.Request, so let's just add some properties
@@ -203,7 +212,6 @@ setattr(web.Request, 'instance', property(request_instance))
 setattr(web.Request, 'message', property(request_message))
 setattr(web.Request, 'signature', property(request_signature))
 
-setattr(web.Request, 'cache', property(lambda self: self.app.cache))
 setattr(web.Request, 'config', property(lambda self: self.app.config))
 setattr(web.Request, 'database', property(lambda self: self.app.database))
 setattr(web.Request, 'semaphore', property(lambda self: self.app.semaphore))

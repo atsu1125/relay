@@ -9,8 +9,6 @@ import uuid
 from Crypto.Hash import SHA, SHA256, SHA512
 from Crypto.PublicKey import RSA
 from Crypto.Signature import PKCS1_v1_5
-from aiohttp import ClientSession, ClientTimeout
-from aiohttp.client_exceptions import ClientConnectorError, ServerTimeoutError
 from aiohttp.hdrs import METH_ALL as METHODS
 from aiohttp.web import Response as AiohttpResponse, View as AiohttpView
 from datetime import datetime
@@ -117,14 +115,8 @@ def distill_inboxes(actor, object_id):
 
 
 def generate_body_digest(body):
-	bodyhash = app.cache.digests.get(body)
-
-	if bodyhash:
-		return bodyhash
-
 	h = SHA256.new(body.encode('utf-8'))
 	bodyhash = base64.b64encode(h.digest()).decode('utf-8')
-	app.cache.digests[body] = bodyhash
 
 	return bodyhash
 
@@ -136,141 +128,6 @@ def sign_signing_string(sigstring, key):
 	sigdata = pkcs.sign(h)
 
 	return base64.b64encode(sigdata).decode('utf-8')
-
-
-async def fetch_actor_key(actor):
-	actor_data = await request(actor)
-
-	if not actor_data:
-		return None
-
-	try:
-		return RSA.importKey(actor_data['publicKey']['publicKeyPem'])
-
-	except Exception as e:
-		logging.debug(f'Exception occured while fetching actor key: {e}')
-
-
-async def fetch_nodeinfo(domain):
-	nodeinfo_url = None
-	wk_nodeinfo = await request(f'https://{domain}/.well-known/nodeinfo', sign_headers=False, activity=False)
-
-	if not wk_nodeinfo:
-		return
-
-	wk_nodeinfo = WKNodeinfo(wk_nodeinfo)
-
-	for version in ['20', '21']:
-		try:
-			nodeinfo_url = wk_nodeinfo.get_url(version)
-
-		except KeyError:
-			pass
-
-	if not nodeinfo_url:
-		logging.verbose(f'Failed to fetch nodeinfo url for domain: {domain}')
-		return False
-
-	nodeinfo = await request(nodeinfo_url, sign_headers=False, activity=False)
-
-	if not nodeinfo:
-		return False
-
-	return Nodeinfo(nodeinfo)
-
-
-async def request(uri, data=None, force=False, sign_headers=True, activity=True, timeout=10):
-	## If a get request and not force, try to use the cache first
-	if not data and not force:
-		try:
-			return app.cache.json[uri]
-
-		except KeyError:
-			pass
-
-	url = urlparse(uri)
-	method = 'POST' if data else 'GET'
-	action = data.get('type') if data else None
-	headers = {
-		'Accept': f'{MIMETYPES["activity"]}, {MIMETYPES["json"]};q=0.9',
-		'User-Agent': 'ActivityRelay',
-	}
-
-	if data:
-		headers['Content-Type'] = MIMETYPES['activity' if activity else 'json']
-
-	if sign_headers:
-		signing_headers = {
-			'(request-target)': f'{method.lower()} {url.path}',
-			'Date': datetime.utcnow().strftime('%a, %d %b %Y %H:%M:%S GMT'),
-			'Host': url.netloc
-		}
-
-		if data:
-			assert isinstance(data, dict)
-
-			data = json.dumps(data)
-			signing_headers.update({
-				'Digest': f'SHA-256={generate_body_digest(data)}',
-				'Content-Length': str(len(data.encode('utf-8')))
-			})
-
-		signing_headers['Signature'] = create_signature_header(signing_headers)
-
-		del signing_headers['(request-target)']
-		del signing_headers['Host']
-
-		headers.update(signing_headers)
-
-	try:
-		if data:
-			logging.verbose(f'Sending "{action}" to inbox: {uri}')
-
-		else:
-			logging.verbose(f'Sending GET request to url: {uri}')
-
-		timeout_cfg = ClientTimeout(connect=timeout)
-		async with ClientSession(trace_configs=http_debug(), timeout=timeout_cfg) as session, app.semaphore:
-			async with session.request(method, uri, headers=headers, data=data) as resp:
-				## aiohttp has been known to leak if the response hasn't been read,
-				## so we're just gonna read the request no matter what
-				resp_data = await resp.read()
-
-				## Not expecting a response, so just return
-				if resp.status == 202:
-					return
-
-				elif resp.status != 200:
-					if not resp_data:
-						return logging.verbose(f'Received error when requesting {uri}: {resp.status} {resp_data}')
-
-					return logging.verbose(f'Received error when sending {action} to {uri}: {resp.status} {resp_data}')
-
-				if resp.content_type == MIMETYPES['activity']:
-					resp_data = await resp.json(loads=Message.new_from_json)
-
-				elif resp.content_type == MIMETYPES['json']:
-					resp_data = await resp.json(loads=DotDict.new_from_json)
-
-				else:
-					logging.verbose(f'Invalid Content-Type for "{url}": {resp.content_type}')
-					return logging.debug(f'Response: {resp_data}')
-
-				logging.debug(f'{uri} >> resp {resp_data}')
-
-				app.cache.json[uri] = resp_data
-				return resp_data
-
-	except JSONDecodeError:
-		logging.verbose(f'Failed to parse JSON')
-		return
-
-	except (ClientConnectorError, ServerTimeoutError):
-		logging.verbose(f'Failed to connect to {url.netloc}')
-		return
-
-	except Exception:
-		traceback.print_exc()
 
 
 async def validate_signature(actor, signature, http_request):
@@ -557,11 +414,6 @@ class View(AiohttpView):
 	@property
 	def app(self):
 		return self._request.app
-
-
-	@property
-	def cache(self):
-		return self.app.cache
 
 
 	@property

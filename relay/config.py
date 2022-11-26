@@ -24,12 +24,6 @@ class RelayConfig(DotDict):
 		'whitelist'
 	}
 
-	cachekeys = {
-		'json',
-		'objects',
-		'digests'
-	}
-
 
 	def __init__(self, path, is_docker):
 		DotDict.__init__(self, {})
@@ -50,7 +44,7 @@ class RelayConfig(DotDict):
 		if key in ['blocked_instances', 'blocked_software', 'whitelist']:
 			assert isinstance(value, (list, set, tuple))
 
-		elif key in ['port', 'workers', 'json', 'objects', 'digests']:
+		elif key in ['port', 'workers', 'json_cache', 'timeout']:
 			if not isinstance(value, int):
 				value = int(value)
 
@@ -94,15 +88,14 @@ class RelayConfig(DotDict):
 			'port': 8080,
 			'note': 'Make a note about your instance here.',
 			'push_limit': 512,
+			'json_cache': 1024,
+			'timeout': 10,
 			'workers': 0,
 			'host': 'relay.example.com',
+			'whitelist_enabled': False,
 			'blocked_software': [],
 			'blocked_instances': [],
-			'whitelist': [],
-			'whitelist_enabled': False,
-			'json': 1024,
-			'objects': 1024,
-			'digests': 1024
+			'whitelist': []
 		})
 
 	def ban_instance(self, instance):
@@ -211,7 +204,7 @@ class RelayConfig(DotDict):
 			return False
 
 		for key, value in config.items():
-			if key in ['ap', 'cache']:
+			if key in ['ap']:
 				for k, v in value.items():
 					if k not in self:
 						continue
@@ -239,8 +232,9 @@ class RelayConfig(DotDict):
 			'note': self.note,
 			'push_limit': self.push_limit,
 			'workers': self.workers,
-			'ap': {key: self[key] for key in self.apkeys},
-			'cache': {key: self[key] for key in self.cachekeys}
+			'json_cache': self.json_cache,
+			'timeout': self.timeout,
+			'ap': {key: self[key] for key in self.apkeys}
 		}
 
 		with open(self._path, 'w') as fd:

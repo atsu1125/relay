@@ -145,7 +145,7 @@ def cli_inbox_follow(actor):
 		inbox = inbox_data['inbox']
 
 	except KeyError:
-		actor_data = asyncio.run(misc.request(actor))
+		actor_data = asyncio.run(app.client.get(actor, sign_headers=True))
 
 		if not actor_data:
 			return click.echo(f'Failed to fetch actor: {actor}')
@@ -157,7 +157,7 @@ def cli_inbox_follow(actor):
 		actor = actor
 	)
 
-	asyncio.run(misc.request(inbox, message))
+	asyncio.run(app.client.post(inbox, message))
 	click.echo(f'Sent follow message to actor: {actor}')
 
 
@@ -183,7 +183,7 @@ def cli_inbox_unfollow(actor):
 		)
 
 	except KeyError:
-		actor_data = asyncio.run(misc.request(actor))
+		actor_data = asyncio.run(app.client.get(actor, sign_headers=True))
 		inbox = actor_data.shared_inbox
 		message = misc.Message.new_unfollow(
 			host = app.config.host,
@@ -195,7 +195,7 @@ def cli_inbox_unfollow(actor):
 			}
 		)
 
-	asyncio.run(misc.request(inbox, message))
+	asyncio.run(app.client.post(inbox, message))
 	click.echo(f'Sent unfollow message to: {actor}')
 
 
@@ -319,7 +319,7 @@ def cli_software_ban(name, fetch_nodeinfo):
 		return click.echo('Banned all relay software')
 
 	if fetch_nodeinfo:
-		nodeinfo = asyncio.run(misc.fetch_nodeinfo(name))
+		nodeinfo = asyncio.run(app.client.fetch_nodeinfo(name))
 
 		if not software:
 			click.echo(f'Failed to fetch software name from domain: {name}')
@@ -347,7 +347,7 @@ def cli_software_unban(name, fetch_nodeinfo):
 		return click.echo('Unbanned all relay software')
 
 	if fetch_nodeinfo:
-		nodeinfo = asyncio.run(misc.fetch_nodeinfo(name))
+		nodeinfo = asyncio.run(app.client.fetch_nodeinfo(name))
 
 		if not nodeinfo:
 			click.echo(f'Failed to fetch software name from domain: {name}')

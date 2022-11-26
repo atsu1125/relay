@@ -102,7 +102,7 @@ async def inbox(request):
 		logging.verbose('Failed to parse inbox message')
 		return Response.new_error(400, 'failed to parse message', 'json')
 
-	request['actor'] = await misc.request(request.signature.keyid)
+	request['actor'] = await request.app.client.get(request.signature.keyid, sign_headers=True)
 
 	## reject if actor is empty
 	if not request.actor:

@@ -6,8 +6,6 @@ import traceback
 from Crypto.PublicKey import RSA
 from urllib.parse import urlparse
 
-from .misc import fetch_nodeinfo
-
 
 class RelayDatabase(dict):
 	def __init__(self, config):
