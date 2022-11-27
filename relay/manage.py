@@ -51,7 +51,7 @@ def cli_setup():
 
 	app.config.save()
 
-	if not app['is_docker'] and click.confirm('Relay all setup! Would you like to run it now?'):
+	if not app.config.is_docker and click.confirm('Relay all setup! Would you like to run it now?'):
 		cli_run.callback()
 
 

@@ -21,8 +21,7 @@ class Application(web.Application):
 
 		self['starttime'] = None
 		self['running'] = False
-		self['is_docker'] = bool(os.environ.get('DOCKER_RUNNING'))
-		self['config'] = RelayConfig(cfgpath, self['is_docker'])
+		self['config'] = RelayConfig(cfgpath)
 
 		if not self['config'].load():
 			self['config'].save()
@@ -57,11 +56,6 @@ class Application(web.Application):
 	@property
 	def database(self):
 		return self['database']
-
-
-	@property
-	def is_docker(self):
-		return self['is_docker']
 
 
 	@property

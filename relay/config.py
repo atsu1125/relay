@@ -1,6 +1,8 @@
 import json
+import os
 import yaml
 
+from functools import cached_property
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -25,22 +27,17 @@ class RelayConfig(DotDict):
 	}
 
 
-	def __init__(self, path, is_docker):
+	def __init__(self, path):
 		DotDict.__init__(self, {})
 
-		if is_docker:
-			path = '/data/relay.yaml'
+		if self.is_docker:
+			path = '/data/config.yaml'
 
-		self._isdocker = is_docker
 		self._path = Path(path).expanduser()
-
 		self.reset()
 
 
 	def __setitem__(self, key, value):
-		if self._isdocker and key in ['db', 'listen', 'port']:
-			return
-
 		if key in ['blocked_instances', 'blocked_software', 'whitelist']:
 			assert isinstance(value, (list, set, tuple))
 
@@ -80,6 +77,11 @@ class RelayConfig(DotDict):
 		return f'{self.actor}#main-key'
 
 
+	@cached_property
+	def is_docker(self):
+		return bool(os.environ.get('DOCKER_RUNNING'))
+
+
 	def reset(self):
 		self.clear()
 		self.update({
@@ -97,6 +99,13 @@ class RelayConfig(DotDict):
 			'blocked_instances': [],
 			'whitelist': []
 		})
+
+		if self.is_docker:
+			self.update({
+				'db': Path('/data/relay.jsonld'),
+				'listen': '127.0.0.1'
+			})
+
 
 	def ban_instance(self, instance):
 		if instance.startswith('http'):
