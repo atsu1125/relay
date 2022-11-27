@@ -10,10 +10,9 @@ from .misc import DotDict, boolean
 
 
 relay_software_names = [
-	'activityrelay',
-	'aoderelay',
-	'social.seattle.wa.us-relay',
-	'unciarelay'
+	'activityrelay', # https://git.pleroma.social/pleroma/relay
+	'aoderelay', # https://git.asonix.dog/asonix/relay
+	'feditools-relay' # https://git.ptzo.gdn/feditools/relay
 ]
 
 
