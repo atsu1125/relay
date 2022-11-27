@@ -35,6 +35,7 @@ class Application(web.Application):
 		self['database'].load()
 
 		self['client'] = HttpClient(
+			database = self.database,
 			limit = self.config.push_limit,
 			timeout = self.config.timeout,
 			cache_size = self.config.json_cache
@@ -155,6 +156,7 @@ class PushWorker(threading.Thread):
 
 	def run(self):
 		self.client = HttpClient(
+			database = self.app.database,
 			limit = self.app.config.push_limit,
 			timeout = self.app.config.timeout,
 			cache_size = self.app.config.json_cache

@@ -1,9 +1,9 @@
+import aputils
 import asyncio
 import json
 import logging
 import traceback
 
-from Crypto.PublicKey import RSA
 from urllib.parse import urlparse
 
 
@@ -17,22 +17,7 @@ class RelayDatabase(dict):
 		})
 
 		self.config = config
-		self.PRIVKEY = None
-
-
-	@property
-	def PUBKEY(self):
-		return self.PRIVKEY.publickey()
-
-
-	@property
-	def pubkey(self):
-		return self.PUBKEY.exportKey('PEM').decode('utf-8')
-
-
-	@property
-	def privkey(self):
-		return self['private-key']
+		self.signer = None
 
 
 	@property
@@ -43,11 +28,6 @@ class RelayDatabase(dict):
 	@property
 	def inboxes(self):
 		return tuple(data['inbox'] for data in self['relay-list'].values())
-
-
-	def generate_key(self):
-		self.PRIVKEY = RSA.generate(4096)
-		self['private-key'] = self.PRIVKEY.exportKey('PEM').decode('utf-8')
 
 
 	def load(self):
@@ -94,12 +74,13 @@ class RelayDatabase(dict):
 			if self.config.db.stat().st_size > 0:
 				raise e from None
 
-		if not self.privkey:
+		if not self['private-key']:
 			logging.info("No actor keys present, generating 4096-bit RSA keypair.")
-			self.generate_key()
+			self.signer = aputils.Signer.new(self.config.keyid, 4096)
+			self['private-key'] = self.signer.export()
 
 		else:
-			self.PRIVKEY = RSA.importKey(self.privkey)
+			self.signer = aputils.Signer(self['private-key'], self.config.keyid)
 
 		self.save()
 		return not new_db

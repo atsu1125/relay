@@ -1,3 +1,4 @@
+import aputils
 import asyncio
 import logging
 import subprocess
@@ -66,7 +67,7 @@ a:hover {{ color: #8AF; }}
 async def actor(request):
 	data = Message.new_actor(
 		host = request.config.host, 
-		pubkey = request.database.pubkey
+		pubkey = request.database.signer.pubkey
 	)
 
 	return Response.new(data, ctype='activity')
@@ -127,9 +128,13 @@ async def inbox(request):
 		return Response.new_error(403, 'access denied', 'json')
 
 	## reject if the signature is invalid
-	if not (await misc.validate_signature(request.actor, request.signature, request)):
+	try:
+		await request.actor.signer.validate_aiohttp_request(request)
+
+	except aputils.SignatureValidationError as e:
 		logging.verbose(f'signature validation failed for: {actor.id}')
-		return Response.new_error(401, 'signature check failed', 'json')
+		logging.debug(str(e))
+		return Response.new_error(401, str(e), 'json')
 
 	## reject if activity type isn't 'Follow' and the actor isn't following
 	if request.message.type != 'Follow' and not database.get_inbox(request.actor.domain):

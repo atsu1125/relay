@@ -1,3 +1,4 @@
+import aputils
 import asyncio
 import base64
 import json
@@ -6,9 +7,6 @@ import socket
 import traceback
 import uuid
 
-from Crypto.Hash import SHA, SHA256, SHA512
-from Crypto.PublicKey import RSA
-from Crypto.Signature import PKCS1_v1_5
 from aiohttp.hdrs import METH_ALL as METHODS
 from aiohttp.web import Response as AiohttpResponse, View as AiohttpView
 from datetime import datetime
@@ -20,12 +18,6 @@ from .http_debug import http_debug
 
 
 app = None
-
-HASHES = {
-	'sha1': SHA,
-	'sha256': SHA256,
-	'sha512': SHA512
-}
 
 MIMETYPES = {
 	'activity': 'application/activity+json',
@@ -92,65 +84,10 @@ def check_open_port(host, port):
 			return False
 
 
-def create_signature_header(headers):
-	headers = {k.lower(): v for k, v in headers.items()}
-	used_headers = headers.keys()
-	sigstring = build_signing_string(headers, used_headers)
-
-	sig = {
-		'keyId': app.config.keyid,
-		'algorithm': 'rsa-sha256',
-		'headers': ' '.join(used_headers),
-		'signature': sign_signing_string(sigstring, app.database.PRIVKEY)
-	}
-
-	chunks = ['{}="{}"'.format(k, v) for k, v in sig.items()]
-	return ','.join(chunks)
-
-
 def distill_inboxes(actor, object_id):
 	for inbox in app.database.inboxes:
 		if inbox != actor.shared_inbox and urlparse(inbox).hostname != urlparse(object_id).hostname:
 			yield inbox
-
-
-def generate_body_digest(body):
-	h = SHA256.new(body.encode('utf-8'))
-	bodyhash = base64.b64encode(h.digest()).decode('utf-8')
-
-	return bodyhash
-
-
-def sign_signing_string(sigstring, key):
-	pkcs = PKCS1_v1_5.new(key)
-	h = SHA256.new()
-	h.update(sigstring.encode('ascii'))
-	sigdata = pkcs.sign(h)
-
-	return base64.b64encode(sigdata).decode('utf-8')
-
-
-async def validate_signature(actor, signature, http_request):
-	headers = {key.lower(): value for key, value in http_request.headers.items()}
-	headers['(request-target)'] = ' '.join([http_request.method.lower(), http_request.path])
-
-	sigstring = build_signing_string(headers, signature['headers'])
-	logging.debug(f'sigstring: {sigstring}')
-
-	sign_alg, _, hash_alg = signature['algorithm'].partition('-')
-	logging.debug(f'sign alg: {sign_alg}, hash alg: {hash_alg}')
-
-	sigdata = base64.b64decode(signature['signature'])
-
-	pkcs = PKCS1_v1_5.new(actor.PUBKEY)
-	h = HASHES[hash_alg].new()
-	h.update(sigstring.encode('ascii'))
-	result = pkcs.verify(h, sigdata)
-
-	http_request['validated'] = result
-
-	logging.debug(f'validates? {result}')
-	return result
 
 
 class DotDict(dict):
@@ -322,16 +259,6 @@ class Message(DotDict):
 
 	# actor properties
 	@property
-	def PUBKEY(self):
-		return RSA.import_key(self.pubkey)
-
-
-	@property
-	def pubkey(self):
-		return self.publicKey.publicKeyPem
-
-
-	@property
 	def shared_inbox(self):
 		return self.get('endpoints', {}).get('sharedInbox', self.inbox)
 
@@ -351,6 +278,11 @@ class Message(DotDict):
 			return self.object.id
 
 		return self.object
+
+
+	@property
+	def signer(self):
+		return aputils.Signer.new_from_actor(self)
 
 
 class Nodeinfo(DotDict):

@@ -1,3 +1,4 @@
+import aputils
 import logging
 import traceback
 
@@ -12,9 +13,7 @@ from . import __version__
 from .misc import (
 	MIMETYPES,
 	DotDict,
-	Message,
-	create_signature_header,
-	generate_body_digest
+	Message
 )
 
 
@@ -30,7 +29,8 @@ class Cache(LRUCache):
 
 
 class HttpClient:
-	def __init__(self, limit=100, timeout=10, cache_size=1024):
+	def __init__(self, database, limit=100, timeout=10, cache_size=1024):
+		self.database = database
 		self.cache = Cache(cache_size)
 		self.cfg = {'limit': limit, 'timeout': timeout}
 		self._conn = None
@@ -45,29 +45,6 @@ class HttpClient:
 	@property
 	def timeout(self):
 		return self.cfg['timeout']
-
-
-	def sign_headers(self, method, url, message=None):
-		parsed = urlparse(url)
-		headers = {
-			'(request-target)': f'{method.lower()} {parsed.path}',
-			'Date': datetime.utcnow().strftime('%a, %d %b %Y %H:%M:%S GMT'),
-			'Host': parsed.netloc
-		}
-
-		if message:
-			data = message.to_json()
-			headers.update({
-				'Digest': f'SHA-256={generate_body_digest(data)}',
-				'Content-Length': str(len(data.encode('utf-8')))
-			})
-
-		headers['Signature'] = create_signature_header(headers)
-
-		del headers['(request-target)']
-		del headers['Host']
-
-		return headers
 
 
 	async def open(self):
@@ -110,7 +87,7 @@ class HttpClient:
 		headers = {}
 
 		if sign_headers:
-			headers.update(self.sign_headers('GET', url))
+			headers.update(self.database.signer.sign_headers('GET', url))
 
 		try:
 			logging.verbose(f'Fetching resource: {url}')
@@ -162,8 +139,19 @@ class HttpClient:
 	async def post(self, url, message):
 		await self.open()
 
+		instance = self.database.get_inbox(url)
+
+		## Akkoma (and probably pleroma) doesn't support hs2019, so use the old algorithm
+		if instance.get('software') in {'akkoma', 'pleroma'}:
+			algorithm = aputils.Algorithm.RSASHA256
+
+		else:
+			algorithm = aputils.Algorithm.HS2019
+
 		headers = {'Content-Type': 'application/activity+json'}
-		headers.update(self.sign_headers('POST', url, message))
+		headers.update(self.database.signer.sign_headers('POST', url, message, algorithm=algorithm))
+
+		print(headers)
 
 		try:
 			logging.verbose(f'Sending "{message.type}" to {url}')
@@ -185,7 +173,7 @@ class HttpClient:
 
 
 	## Additional methods ##
-	async def fetch_nodeinfo(domain):
+	async def fetch_nodeinfo(self, domain):
 		nodeinfo_url = None
 		wk_nodeinfo = await self.get(f'https://{domain}/.well-known/nodeinfo', loads=WKNodeinfo)
 
