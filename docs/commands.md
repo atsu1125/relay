@@ -24,6 +24,20 @@ Run the setup wizard to configure your relay.
 	activityrelay setup
 
 
+## Config
+
+List the current configuration key/value pairs
+
+	activityrelay config
+
+
+### Set
+
+Set a value for a config option
+
+	activityrelay config set <key> <value>
+
+
 ## Inbox
 
 Manage the list of subscribed instances.
