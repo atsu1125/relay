@@ -141,8 +141,8 @@ class HttpClient:
 
 		instance = self.database.get_inbox(url)
 
-		## Akkoma (and probably pleroma) doesn't support hs2019, so use the old algorithm
-		if instance.get('software') in {'akkoma', 'pleroma'}:
+		## Using the old algo by default is probably a better idea right now
+		if instance and instance.get('software') not in {'mastodon'}:
 			algorithm = aputils.Algorithm.RSASHA256
 
 		else:
