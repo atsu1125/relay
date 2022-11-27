@@ -151,8 +151,6 @@ class HttpClient:
 		headers = {'Content-Type': 'application/activity+json'}
 		headers.update(self.database.signer.sign_headers('POST', url, message, algorithm=algorithm))
 
-		print(headers)
-
 		try:
 			logging.verbose(f'Sending "{message.type}" to {url}')
 
