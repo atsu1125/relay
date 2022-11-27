@@ -9,13 +9,19 @@ port: 8080
 # Note
 note: "Make a note about your instance here."
 
-# maximum number of inbox posts to do at once
+# Number of worker threads to start. If 0, use asyncio futures instead of threads.
+workers: 0
+
+# Maximum number of inbox posts to do at once
+# If workers is set to 1 or above, this is the max for each worker
 push_limit: 512
 
-# this section is for ActivityPub
+# The amount of json objects to cache from GET requests
+json_cache: 1024
+
 ap:
-  # this is used for generating activitypub messages, as well as instructions for
-  # linking AP identities.  it should be an SSL-enabled domain reachable by https.
+  # This is used for generating activitypub messages, as well as instructions for
+  # linking AP identities.  It should be an SSL-enabled domain reachable by https.
   host: 'relay.example.com'
 
   blocked_instances:
@@ -35,9 +41,3 @@ ap:
   #- 'aoderelay'
   #- 'social.seattle.wa.us-relay'
   #- 'unciarelay'
-
-# cache limits as number of items. only change this if you know what you're doing
-cache:
-  objects: 1024
-  json: 1024
-  digests: 1024
