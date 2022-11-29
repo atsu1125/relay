@@ -84,12 +84,6 @@ def check_open_port(host, port):
 			return False
 
 
-def distill_inboxes(actor, object_id):
-	for inbox in app.database.inboxes:
-		if inbox != actor.shared_inbox and urlparse(inbox).hostname != urlparse(object_id).hostname:
-			yield inbox
-
-
 class DotDict(dict):
 	def __init__(self, _data, **kwargs):
 		dict.__init__(self)

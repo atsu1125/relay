@@ -184,3 +184,14 @@ class RelayDatabase(dict):
 			domain = urlparse(inbox).hostname
 
 		del self['follow-requests'][domain]
+
+
+	def distill_inboxes(self, message):
+		src_domains = {
+			message.domain,
+			urlparse(message.objectid).netloc
+		}
+
+		for domain, instance in self['relay-list'].items():
+			if domain not in src_domains:
+				yield instance['inbox']

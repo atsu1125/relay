@@ -4,7 +4,7 @@ import logging
 from cachetools import LRUCache
 from uuid import uuid4
 
-from .misc import Message, distill_inboxes
+from .misc import Message
 
 
 cache = LRUCache(1024)
@@ -23,7 +23,7 @@ async def handle_relay(request):
 	cache[request.message.objectid] = message.id
 	logging.debug(f'>> relay: {message}')
 
-	inboxes = distill_inboxes(request.actor, request.message.objectid)
+	niboxes = request.database.distill_inboxes(request.message)
 
 	for inbox in inboxes:
 		request.app.push_message(inbox, message)
@@ -42,7 +42,7 @@ async def handle_forward(request):
 	cache[request.message.id] = message.id
 	logging.debug(f'>> forward: {message}')
 
-	inboxes = distill_inboxes(request.actor, request.message.objectid)
+	inboxes = request.database.distill_inboxes(request.message)
 
 	for inbox in inboxes:
 		request.app.push_message(inbox, message)
