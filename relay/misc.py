@@ -37,10 +37,6 @@ def set_app(new_app):
 	app = new_app
 
 
-def build_signing_string(headers, used_headers):
-	return '\n'.join(map(lambda x: ': '.join([x.lower(), headers[x]]), used_headers))
-
-
 def boolean(value):
 	if isinstance(value, str):
 		if value.lower() in ['on', 'y', 'yes', 'true', 'enable', 'enabled', '1']:
@@ -279,12 +275,6 @@ class Message(DotDict):
 		return aputils.Signer.new_from_actor(self)
 
 
-class Nodeinfo(DotDict):
-	@property
-	def swname(self):
-		return self.software.name
-
-
 class Response(AiohttpResponse):
 	@classmethod
 	def new(cls, body='', status=200, headers=None, ctype='text'):
@@ -350,22 +340,3 @@ class View(AiohttpView):
 	@property
 	def database(self):
 		return self.app.database
-
-
-class WKNodeinfo(DotDict):
-	@classmethod
-	def new(cls, v20, v21):
-		return cls({
-			'links': [
-				{'rel': NODEINFO_NS['20'], 'href': v20},
-				{'rel': NODEINFO_NS['21'], 'href': v21}
-			]
-		})
-
-
-	def get_url(self, version='20'):
-		for item in self.links:
-			if item['rel'] == NODEINFO_NS[version]:
-				return item['href']
-
-		raise KeyError(version)

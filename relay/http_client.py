@@ -1,9 +1,9 @@
-import aputils
 import logging
 import traceback
 
 from aiohttp import ClientSession, ClientTimeout, TCPConnector
 from aiohttp.client_exceptions import ClientConnectorError, ServerTimeoutError
+from aputils import Nodeinfo, WellKnownNodeinfo
 from datetime import datetime
 from cachetools import LRUCache
 from json.decoder import JSONDecodeError
@@ -173,7 +173,10 @@ class HttpClient:
 	## Additional methods ##
 	async def fetch_nodeinfo(self, domain):
 		nodeinfo_url = None
-		wk_nodeinfo = await self.get(f'https://{domain}/.well-known/nodeinfo', loads=WKNodeinfo)
+		wk_nodeinfo = await self.get(
+			f'https://{domain}/.well-known/nodeinfo',
+			loads = WellKnownNodeinfo.new_from_json
+		)
 
 		for version in ['20', '21']:
 			try:
@@ -186,4 +189,4 @@ class HttpClient:
 			logging.verbose(f'Failed to fetch nodeinfo url for domain: {domain}')
 			return False
 
-		return await request(nodeinfo_url, loads=Nodeinfo) or False
+		return await request(nodeinfo_url, loads=Nodeinfo.new_from_json) or False

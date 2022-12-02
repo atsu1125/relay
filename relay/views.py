@@ -8,7 +8,7 @@ from pathlib import Path
 
 from . import __version__, misc
 from .http_debug import STATS
-from .misc import DotDict, Message, Response, WKNodeinfo
+from .misc import DotDict, Message, Response
 from .processors import run_processor
 
 
@@ -158,57 +158,37 @@ async def webfinger(request):
 	if subject != f'acct:relay@{request.config.host}':
 		return Response.new_error(404, 'user not found', 'json')
 
-	data = {
-		'subject': subject,
-		'aliases': [request.config.actor],
-		'links': [
-			{'href': request.config.actor, 'rel': 'self', 'type': 'application/activity+json'},
-			{'href': request.config.actor, 'rel': 'self', 'type': 'application/ld+json; profile=\"https://www.w3.org/ns/activitystreams\"'}
-		]
-	}
+	data = aputils.Webfinger.new(
+		handle = 'relay',
+		domain = request.config.host,
+		actor = request.config.actor
+	)
 
 	return Response.new(data, ctype='json')
 
 
 @register_route('GET', '/nodeinfo/{version:\d.\d\.json}')
-async def nodeinfo_2_0(request):
+async def nodeinfo(request):
 	niversion = request.match_info['version'][:3]
-	data = {
-		'openRegistrations': not request.config.whitelist_enabled,
-		'protocols': ['activitypub'],
-		'services': {
-			'inbound': [],
-			'outbound': []
-		},
-		'software': {
-			'name': 'activityrelay',
-			'version': version
-		},
-		'usage': {
-			'localPosts': 0,
-			'users': {
-				'total': 1
-			}
-		},
-		'metadata': {
-			'peers': request.database.hostnames
-		},
-		'version': niversion
-	}
 
-	if version == '2.1':
-		data['software']['repository'] = 'https://git.pleroma.social/pleroma/relay'
+	data = dict(
+		name = 'activityrelay',
+		version = version,
+		protocols = ['activitypub'],
+		open_regs = not request.config.whitelist_enabled,
+		users = 1,
+		metadata = {'peers': request.database.hostnames}
+	)
 
-	return Response.new(data, ctype='json')
+	if niversion == '2.1':
+		data['repo'] = 'https://git.pleroma.social/pleroma/relay'
+
+	return Response.new(aputils.Nodeinfo.new(**data), ctype='json')
 
 
 @register_route('GET', '/.well-known/nodeinfo')
 async def nodeinfo_wellknown(request):
-	data = WKNodeinfo.new(
-		v20 = f'https://{request.config.host}/nodeinfo/2.0.json',
-		v21 = f'https://{request.config.host}/nodeinfo/2.1.json'
-	)
-
+	data = aputils.WellKnownNodeinfo.new_template(request.config.host)
 	return Response.new(data, ctype='json')
 
 
