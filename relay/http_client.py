@@ -103,11 +103,7 @@ class HttpClient:
 					return
 
 				if loads:
-					if issubclass(loads, DotDict):
-						message = await resp.json(loads=loads.new_from_json)
-
-					else:
-						message = await resp.json(loads=loads)
+					message = await resp.json(loads=loads)
 
 				elif resp.content_type == MIMETYPES['activity']:
 					message = await resp.json(loads=Message.new_from_json)
@@ -189,4 +185,4 @@ class HttpClient:
 			logging.verbose(f'Failed to fetch nodeinfo url for domain: {domain}')
 			return False
 
-		return await request(nodeinfo_url, loads=Nodeinfo.new_from_json) or False
+		return await self.get(nodeinfo_url, loads=Nodeinfo.new_from_json) or False
