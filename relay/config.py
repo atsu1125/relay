@@ -234,7 +234,8 @@ class RelayConfig(DotDict):
 
 	def save(self):
 		config = {
-			'db': self['db'],
+			# just turning config.db into a string is good enough for now
+			'db': str(self.db),
 			'listen': self.listen,
 			'port': self.port,
 			'note': self.note,
