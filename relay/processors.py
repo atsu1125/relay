@@ -23,7 +23,7 @@ async def handle_relay(request):
 	cache[request.message.objectid] = message.id
 	logging.debug(f'>> relay: {message}')
 
-	niboxes = request.database.distill_inboxes(request.message)
+	inboxes = request.database.distill_inboxes(request.message)
 
 	for inbox in inboxes:
 		request.app.push_message(inbox, message)

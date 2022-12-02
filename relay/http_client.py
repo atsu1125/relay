@@ -87,7 +87,7 @@ class HttpClient:
 		headers = {}
 
 		if sign_headers:
-			headers.update(self.database.signer.sign_headers('GET', url))
+			headers.update(self.database.signer.sign_headers('GET', url, algorithm='original'))
 
 		try:
 			logging.verbose(f'Fetching resource: {url}')
@@ -142,11 +142,11 @@ class HttpClient:
 		instance = self.database.get_inbox(url)
 
 		## Using the old algo by default is probably a better idea right now
-		if instance and instance.get('software') not in {'mastodon'}:
-			algorithm = aputils.Algorithm.RSASHA256
+		if instance and instance.get('software') in {'mastodon'}:
+			algorithm = 'hs2019'
 
 		else:
-			algorithm = aputils.Algorithm.HS2019
+			algorithm = 'original'
 
 		headers = {'Content-Type': 'application/activity+json'}
 		headers.update(self.database.signer.sign_headers('POST', url, message, algorithm=algorithm))
