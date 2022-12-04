@@ -10,6 +10,16 @@ from .misc import Message
 cache = LRUCache(1024)
 
 
+def person_check(actor, software):
+	## pleroma and akkoma use Person for the actor type for some reason
+	if software in {'akkoma', 'pleroma'} and actor.id != f'https://{actor.domain}/relay':
+		return True
+
+	## make sure the actor is an application
+	elif actor.type != 'Application':
+		return True
+
+
 async def handle_relay(request):
 	if request.message.objectid in cache:
 		logging.verbose(f'already relayed {request.message.objectid}')
@@ -54,12 +64,36 @@ async def handle_follow(request):
 
 	## reject if software used by actor is banned
 	if request.config.is_banned_software(software):
+		request.app.push_message(
+			request.actor.shared_inbox,
+			Message.new_response(
+				host = request.config.host,
+				actor = request.actor.id,
+				followid = request.message.id,
+				accept = False
+			)
+		)
+
 		return logging.verbose(f'Rejected follow from actor for using specific software: actor={request.actor.id}, software={software}')
+
+	## reject if the actor is not an instance actor
+	if person_check(request.actor, software):
+		request.app.push_message(
+			request.actor.shared_inbox,
+			Message.new_response(
+				host = request.config.host,
+				actor = request.actor.id,
+				followid = request.message.id,
+				accept = False
+			)
+		)
+
+		return logging.verbose(f'Non-application actor tried to follow: {request.actor.id}')
 
 	request.database.add_inbox(request.actor.shared_inbox, request.message.id, software)
 	request.database.save()
 
-	await request.app.push_message(
+	request.app.push_message(
 		request.actor.shared_inbox,
 		Message.new_response(
 			host = request.config.host,
@@ -72,7 +106,7 @@ async def handle_follow(request):
 	# Are Akkoma and Pleroma the only two that expect a follow back?
 	# Ignoring only Mastodon for now
 	if software != 'mastodon':
-		await request.app.push_message(
+		request.app.push_message(
 			request.actor.shared_inbox,
 			Message.new_follow(
 				host = request.config.host,
@@ -91,7 +125,7 @@ async def handle_undo(request):
 
 	request.database.save()
 
-	await request.app.push_message(
+	request.app.push_message(
 		request.actor.shared_inbox,
 		Message.new_unfollow(
 			host = request.config.host,
