@@ -81,13 +81,15 @@ def cli_run():
 
 
 # todo: add config default command for resetting config key
-@cli.group('config', invoke_without_command=True)
-@click.pass_context
-def cli_config(ctx):
-	'List the current relay config'
+@cli.group('config')
+def cli_config():
+	'Manage the relay config'
+	pass
 
-	if ctx.invoked_subcommand:
-		return
+
+@cli_config.command('list')
+def cli_config_list():
+	'List the current relay config'
 
 	click.echo('Relay Config:')
 
@@ -321,14 +323,16 @@ def cli_software_ban(name, fetch_nodeinfo):
 	if fetch_nodeinfo:
 		nodeinfo = asyncio.run(app.client.fetch_nodeinfo(name))
 
-		if not software:
+		if not nodeinfo:
 			click.echo(f'Failed to fetch software name from domain: {name}')
 
-	if config.ban_software(nodeinfo.swname):
-		app.config.save()
-		return click.echo(f'Banned software: {nodeinfo.swname}')
+		name = nodeinfo.sw_name
 
-	click.echo(f'Software already banned: {nodeinfo.swname}')
+	if app.config.ban_software(name):
+		app.config.save()
+		return click.echo(f'Banned software: {name}')
+
+	click.echo(f'Software already banned: {name}')
 
 
 @cli_software.command('unban')
@@ -343,7 +347,7 @@ def cli_software_unban(name, fetch_nodeinfo):
 		for name in relay_software_names:
 			app.config.unban_software(name)
 
-		config.save()
+		app.config.save()
 		return click.echo('Unbanned all relay software')
 
 	if fetch_nodeinfo:
@@ -352,12 +356,13 @@ def cli_software_unban(name, fetch_nodeinfo):
 		if not nodeinfo:
 			click.echo(f'Failed to fetch software name from domain: {name}')
 
-	if app.config.unban_software(nodeinfo.swname):
+		name = nodeinfo.sw_name
+
+	if app.config.unban_software(name):
 		app.config.save()
-		return click.echo(f'Unbanned software: {nodeinfo.swname}')
+		return click.echo(f'Unbanned software: {name}')
 
-	click.echo(f'Software wasn\'t banned: {nodeinfo.swname}')
-
+	click.echo(f'Software wasn\'t banned: {name}')
 
 
 @cli.group('whitelist')
@@ -368,6 +373,8 @@ def cli_whitelist():
 
 @cli_whitelist.command('list')
 def cli_whitelist_list():
+	'List all the instances in the whitelist'
+
 	click.echo('Current whitelisted domains')
 
 	for domain in app.config.whitelist:
@@ -401,6 +408,14 @@ def cli_whitelist_remove(instance):
 			app.database.save()
 
 	click.echo(f'Removed instance from the whitelist: {instance}')
+
+
+@cli_whitelist.command('import')
+def cli_whitelist_import():
+	'Add all current inboxes to the whitelist'
+
+	for domain in app.database.hostnames:
+		cli_whitelist_add.callback(domain)
 
 
 def main():
