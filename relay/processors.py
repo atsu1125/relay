@@ -50,7 +50,7 @@ async def handle_forward(request):
 
 async def handle_follow(request):
 	nodeinfo = await request.app.client.fetch_nodeinfo(request.actor.domain)
-	software = nodeinfo.swname if nodeinfo else None
+	software = nodeinfo.sw_name if nodeinfo else None
 
 	## reject if software used by actor is banned
 	if request.config.is_banned_software(software):
@@ -119,7 +119,7 @@ async def run_processor(request):
 		nodeinfo = await request.app.client.fetch_nodeinfo(request.instance['domain'])
 
 		if nodeinfo:
-			request.instance['software'] = nodeinfo.swname
+			request.instance['software'] = nodeinfo.sw_name
 			request.database.save()
 
 	logging.verbose(f'New "{request.message.type}" from actor: {request.actor.id}')
