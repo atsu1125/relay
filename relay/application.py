@@ -60,11 +60,6 @@ class Application(web.Application):
 
 
 	@property
-	def semaphore(self):
-		return self['semaphore']
-
-
-	@property
 	def uptime(self):
 		if not self['starttime']:
 			return timedelta(seconds=0)
@@ -207,4 +202,3 @@ setattr(web.Request, 'signature', property(request_signature))
 
 setattr(web.Request, 'config', property(lambda self: self.app.config))
 setattr(web.Request, 'database', property(lambda self: self.app.database))
-setattr(web.Request, 'semaphore', property(lambda self: self.app.semaphore))
