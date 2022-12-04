@@ -26,9 +26,16 @@ Run the setup wizard to configure your relay.
 
 ## Config
 
-List the current configuration key/value pairs
+Manage the relay config
 
 	activityrelay config
+
+
+### List
+
+List the current config key/value pairs
+
+	activityrelay config list
 
 
 ### Set
@@ -109,6 +116,13 @@ Add a domain to the whitelist.
 Remove a domain from the whitelist.
 
 	activityrelay whitelist remove <domain>
+
+
+### Import
+
+Add all current inboxes to the whitelist
+
+	activityrelay whitelist import
 
 
 ## Instance
