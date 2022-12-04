@@ -8,7 +8,7 @@ from urllib.parse import urlparse
 
 from . import misc, __version__
 from .application import Application
-from .config import relay_software_names
+from .config import RELAY_SOFTWARE
 
 
 app = None
@@ -314,7 +314,7 @@ def cli_software_ban(name, fetch_nodeinfo):
 	'Ban software. Use RELAYS for NAME to ban relays'
 
 	if name == 'RELAYS':
-		for name in relay_software_names:
+		for name in RELAY_SOFTWARE:
 			app.config.ban_software(name)
 
 		app.config.save()
@@ -344,7 +344,7 @@ def cli_software_unban(name, fetch_nodeinfo):
 	'Ban software. Use RELAYS for NAME to unban relays'
 
 	if name == 'RELAYS':
-		for name in relay_software_names:
+		for name in RELAY_SOFTWARE:
 			app.config.unban_software(name)
 
 		app.config.save()

@@ -9,23 +9,22 @@ from urllib.parse import urlparse
 from .misc import DotDict, boolean
 
 
-relay_software_names = [
+RELAY_SOFTWARE = [
 	'activityrelay', # https://git.pleroma.social/pleroma/relay
 	'aoderelay', # https://git.asonix.dog/asonix/relay
 	'feditools-relay' # https://git.ptzo.gdn/feditools/relay
 ]
 
+APKEYS = [
+	'host',
+	'whitelist_enabled',
+	'blocked_software',
+	'blocked_instances',
+	'whitelist'
+]
+
 
 class RelayConfig(DotDict):
-	apkeys = {
-		'host',
-		'whitelist_enabled',
-		'blocked_software',
-		'blocked_instances',
-		'whitelist'
-	}
-
-
 	def __init__(self, path):
 		DotDict.__init__(self, {})
 
@@ -243,7 +242,7 @@ class RelayConfig(DotDict):
 			'workers': self.workers,
 			'json_cache': self.json_cache,
 			'timeout': self.timeout,
-			'ap': {key: self[key] for key in self.apkeys}
+			'ap': {key: self[key] for key in APKEYS}
 		}
 
 		with open(self._path, 'w') as fd:
