@@ -14,8 +14,6 @@ from json.decoder import JSONDecodeError
 from urllib.parse import urlparse
 from uuid import uuid4
 
-from .http_debug import http_debug
-
 
 app = None
 

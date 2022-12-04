@@ -7,7 +7,6 @@ import traceback
 from pathlib import Path
 
 from . import __version__, misc
-from .http_debug import STATS
 from .misc import DotDict, Message, Response
 from .processors import run_processor
 
@@ -190,8 +189,3 @@ async def nodeinfo(request):
 async def nodeinfo_wellknown(request):
 	data = aputils.WellKnownNodeinfo.new_template(request.config.host)
 	return Response.new(data, ctype='json')
-
-
-@register_route('GET', '/stats')
-async def stats(request):
-    return Response.new(STATS, ctype='json')

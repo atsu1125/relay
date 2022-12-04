@@ -102,9 +102,6 @@ class Application(web.Application):
 			return logging.error(f'A server is already running on port {self.config.port}')
 
 		for route in routes:
-			if route[1] == '/stats' and logging.DEBUG < logging.root.level:
-				continue
-
 			self.router.add_route(*route)
 
 		logging.info(f'Starting webserver at {self.config.host} ({self.config.listen}:{self.config.port})')
