@@ -98,12 +98,6 @@ class RelayConfig(DotDict):
 			'whitelist': []
 		})
 
-		if self.is_docker:
-			self.update({
-				'db': Path('/data/relay.jsonld'),
-				'listen': '127.0.0.1'
-			})
-
 
 	def ban_instance(self, instance):
 		if instance.startswith('http'):
