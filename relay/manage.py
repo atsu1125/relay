@@ -43,11 +43,12 @@ def cli_setup():
 
 		click.echo('The domain must not be example.com')
 
-	app.config.listen = click.prompt('Which address should the relay listen on?', default=app.config.listen)
+	if not app.config.is_docker:
+		app.config.listen = click.prompt('Which address should the relay listen on?', default=app.config.listen)
 
-	while True:
-		app.config.port = click.prompt('What TCP port should the relay listen on?', default=app.config.port, type=int)
-		break
+		while True:
+			app.config.port = click.prompt('What TCP port should the relay listen on?', default=app.config.port, type=int)
+			break
 
 	app.config.save()
 
