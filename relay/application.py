@@ -4,6 +4,7 @@ import os
 import queue
 import signal
 import threading
+import traceback
 
 from aiohttp import web
 from datetime import datetime, timedelta
@@ -174,6 +175,10 @@ class PushWorker(threading.Thread):
 
 			except queue.Empty:
 				pass
+
+			## make sure an exception doesn't bring down the worker
+			except Exception:
+				traceback.print_exc()
 
 		await self.client.close()
 
