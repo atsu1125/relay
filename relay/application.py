@@ -26,6 +26,13 @@ class Application(web.Application):
 		if not self['config'].load():
 			self['config'].save()
 
+		if self.config.is_docker:
+			self.config.update({
+				'db': '/data/relay.jsonld',
+				'listen': '0.0.0.0',
+				'port': 8080
+			})
+
 		self['workers'] = []
 		self['last_worker'] = 0
 
