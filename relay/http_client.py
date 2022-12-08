@@ -159,7 +159,7 @@ class HttpClient:
 				return logging.verbose(await resp.read()) # change this to debug
 
 		except (ClientConnectorError, ServerTimeoutError):
-			logging.verbose(f'Failed to connect to {url.netloc}')
+			logging.verbose(f'Failed to connect to {url}')
 
 		## prevent workers from being brought down
 		except Exception as e:
@@ -173,6 +173,10 @@ class HttpClient:
 			f'https://{domain}/.well-known/nodeinfo',
 			loads = WellKnownNodeinfo.new_from_json
 		)
+
+		if not wk_nodeinfo:
+			logging.verbose(f'Failed to fetch well-known nodeinfo url for domain: {domain}')
+			return False
 
 		for version in ['20', '21']:
 			try:
