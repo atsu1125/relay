@@ -76,7 +76,7 @@ class RelayDatabase(dict):
 
 		if not self['private-key']:
 			logging.info("No actor keys present, generating 4096-bit RSA keypair.")
-			self.signer = aputils.Signer.new(self.config.keyid, 4096)
+			self.signer = aputils.Signer.new(self.config.keyid, size=4096)
 			self['private-key'] = self.signer.export()
 
 		else:
