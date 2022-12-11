@@ -1,60 +1,51 @@
 import json
+import os
 import yaml
 
+from functools import cached_property
 from pathlib import Path
 from urllib.parse import urlparse
 
-from .misc import DotDict
+from .misc import DotDict, boolean
 
 
-relay_software_names = [
-	'activityrelay',
-	'aoderelay',
-	'social.seattle.wa.us-relay',
-	'unciarelay'
+RELAY_SOFTWARE = [
+	'activityrelay', # https://git.pleroma.social/pleroma/relay
+	'aoderelay', # https://git.asonix.dog/asonix/relay
+	'feditools-relay' # https://git.ptzo.gdn/feditools/relay
+]
+
+APKEYS = [
+	'host',
+	'whitelist_enabled',
+	'blocked_software',
+	'blocked_instances',
+	'whitelist'
 ]
 
 
 class RelayConfig(DotDict):
-	apkeys = {
-		'host',
-		'whitelist_enabled',
-		'blocked_software',
-		'blocked_instances',
-		'whitelist'
-	}
-
-	cachekeys = {
-		'json',
-		'objects',
-		'digests'
-	}
-
-
-	def __init__(self, path, is_docker):
+	def __init__(self, path):
 		DotDict.__init__(self, {})
 
-		if is_docker:
-			path = '/data/relay.yaml'
+		if self.is_docker:
+			path = '/data/config.yaml'
 
-		self._isdocker = is_docker
 		self._path = Path(path).expanduser()
-
 		self.reset()
 
 
 	def __setitem__(self, key, value):
-		if self._isdocker and key in ['db', 'listen', 'port']:
-			return
-
 		if key in ['blocked_instances', 'blocked_software', 'whitelist']:
 			assert isinstance(value, (list, set, tuple))
 
-		elif key in ['port', 'json', 'objects', 'digests']:
-			assert isinstance(value, (int))
+		elif key in ['port', 'workers', 'json_cache', 'timeout']:
+			if not isinstance(value, int):
+				value = int(value)
 
 		elif key == 'whitelist_enabled':
-			assert isinstance(value, bool)
+			if not isinstance(value, bool):
+				value = boolean(value)
 
 		super().__setitem__(key, value)
 
@@ -84,6 +75,11 @@ class RelayConfig(DotDict):
 		return f'{self.actor}#main-key'
 
 
+	@cached_property
+	def is_docker(self):
+		return bool(os.environ.get('DOCKER_RUNNING'))
+
+
 	def reset(self):
 		self.clear()
 		self.update({
@@ -92,15 +88,16 @@ class RelayConfig(DotDict):
 			'port': 8080,
 			'note': 'Make a note about your instance here.',
 			'push_limit': 512,
+			'json_cache': 1024,
+			'timeout': 10,
+			'workers': 0,
 			'host': 'relay.example.com',
+			'whitelist_enabled': False,
 			'blocked_software': [],
 			'blocked_instances': [],
-			'whitelist': [],
-			'whitelist_enabled': False,
-			'json': 1024,
-			'objects': 1024,
-			'digests': 1024
+			'whitelist': []
 		})
+
 
 	def ban_instance(self, instance):
 		if instance.startswith('http'):
@@ -208,12 +205,14 @@ class RelayConfig(DotDict):
 			return False
 
 		for key, value in config.items():
-			if key in ['ap', 'cache']:
+			if key in ['ap']:
 				for k, v in value.items():
 					if k not in self:
 						continue
 
 					self[k] = v
+
+				continue
 
 			elif key not in self:
 				continue
@@ -228,13 +227,16 @@ class RelayConfig(DotDict):
 
 	def save(self):
 		config = {
-			'db': self['db'],
+			# just turning config.db into a string is good enough for now
+			'db': str(self.db),
 			'listen': self.listen,
 			'port': self.port,
 			'note': self.note,
 			'push_limit': self.push_limit,
-			'ap': {key: self[key] for key in self.apkeys},
-			'cache': {key: self[key] for key in self.cachekeys}
+			'workers': self.workers,
+			'json_cache': self.json_cache,
+			'timeout': self.timeout,
+			'ap': {key: self[key] for key in APKEYS}
 		}
 
 		with open(self._path, 'w') as fd:

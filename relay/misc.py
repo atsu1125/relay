@@ -1,3 +1,4 @@
+import aputils
 import asyncio
 import base64
 import json
@@ -6,10 +7,6 @@ import socket
 import traceback
 import uuid
 
-from Crypto.Hash import SHA, SHA256, SHA512
-from Crypto.PublicKey import RSA
-from Crypto.Signature import PKCS1_v1_5
-from aiohttp import ClientSession
 from aiohttp.hdrs import METH_ALL as METHODS
 from aiohttp.web import Response as AiohttpResponse, View as AiohttpView
 from datetime import datetime
@@ -17,16 +14,8 @@ from json.decoder import JSONDecodeError
 from urllib.parse import urlparse
 from uuid import uuid4
 
-from .http_debug import http_debug
-
 
 app = None
-
-HASHES = {
-	'sha1': SHA,
-	'sha256': SHA256,
-	'sha512': SHA512
-}
 
 MIMETYPES = {
 	'activity': 'application/activity+json',
@@ -46,8 +35,35 @@ def set_app(new_app):
 	app = new_app
 
 
-def build_signing_string(headers, used_headers):
-	return '\n'.join(map(lambda x: ': '.join([x.lower(), headers[x]]), used_headers))
+def boolean(value):
+	if isinstance(value, str):
+		if value.lower() in ['on', 'y', 'yes', 'true', 'enable', 'enabled', '1']:
+			return True
+
+		elif value.lower() in ['off', 'n', 'no', 'false', 'disable', 'disable', '0']:
+			return False
+
+		else:
+			raise TypeError(f'Cannot parse string "{value}" as a boolean')
+
+	elif isinstance(value, int):
+		if value == 1:
+			return True
+
+		elif value == 0:
+			return False
+
+		else:
+			raise ValueError('Integer value must be 1 or 0')
+
+	elif value == None:
+		return False
+
+	try:
+		return value.__bool__()
+
+	except AttributeError:
+		raise TypeError(f'Cannot convert object of type "{clsname(value)}"')
 
 
 def check_open_port(host, port):
@@ -60,203 +76,6 @@ def check_open_port(host, port):
 
 		except socket.error as e:
 			return False
-
-
-def create_signature_header(headers):
-	headers = {k.lower(): v for k, v in headers.items()}
-	used_headers = headers.keys()
-	sigstring = build_signing_string(headers, used_headers)
-
-	sig = {
-		'keyId': app.config.keyid,
-		'algorithm': 'rsa-sha256',
-		'headers': ' '.join(used_headers),
-		'signature': sign_signing_string(sigstring, app.database.PRIVKEY)
-	}
-
-	chunks = ['{}="{}"'.format(k, v) for k, v in sig.items()]
-	return ','.join(chunks)
-
-
-def distill_inboxes(actor, object_id):
-	for inbox in app.database.inboxes:
-		if inbox != actor.shared_inbox and urlparse(inbox).hostname != urlparse(object_id).hostname:
-			yield inbox
-
-
-def generate_body_digest(body):
-	bodyhash = app.cache.digests.get(body)
-
-	if bodyhash:
-		return bodyhash
-
-	h = SHA256.new(body.encode('utf-8'))
-	bodyhash = base64.b64encode(h.digest()).decode('utf-8')
-	app.cache.digests[body] = bodyhash
-
-	return bodyhash
-
-
-def sign_signing_string(sigstring, key):
-	pkcs = PKCS1_v1_5.new(key)
-	h = SHA256.new()
-	h.update(sigstring.encode('ascii'))
-	sigdata = pkcs.sign(h)
-
-	return base64.b64encode(sigdata).decode('utf-8')
-
-
-async def fetch_actor_key(actor):
-	actor_data = await request(actor)
-
-	if not actor_data:
-		return None
-
-	try:
-		return RSA.importKey(actor_data['publicKey']['publicKeyPem'])
-
-	except Exception as e:
-		logging.debug(f'Exception occured while fetching actor key: {e}')
-
-
-async def fetch_nodeinfo(domain):
-	nodeinfo_url = None
-	wk_nodeinfo = await request(f'https://{domain}/.well-known/nodeinfo', sign_headers=False, activity=False)
-
-	if not wk_nodeinfo:
-		return
-
-	wk_nodeinfo = WKNodeinfo(wk_nodeinfo)
-
-	for version in ['20', '21']:
-		try:
-			nodeinfo_url = wk_nodeinfo.get_url(version)
-
-		except KeyError:
-			pass
-
-	if not nodeinfo_url:
-		logging.verbose(f'Failed to fetch nodeinfo url for domain: {domain}')
-		return False
-
-	nodeinfo = await request(nodeinfo_url, sign_headers=False, activity=False)
-
-	try:
-		return nodeinfo['software']['name']
-
-	except KeyError:
-		return False
-
-
-async def request(uri, data=None, force=False, sign_headers=True, activity=True):
-	## If a get request and not force, try to use the cache first
-	if not data and not force:
-		try:
-			return app.cache.json[uri]
-
-		except KeyError:
-			pass
-
-	url = urlparse(uri)
-	method = 'POST' if data else 'GET'
-	action = data.get('type') if data else None
-	headers = {
-		'Accept': f'{MIMETYPES["activity"]}, {MIMETYPES["json"]};q=0.9',
-		'User-Agent': 'ActivityRelay',
-	}
-
-	if data:
-		headers['Content-Type'] = MIMETYPES['activity' if activity else 'json']
-
-	if sign_headers:
-		signing_headers = {
-			'(request-target)': f'{method.lower()} {url.path}',
-			'Date': datetime.utcnow().strftime('%a, %d %b %Y %H:%M:%S GMT'),
-			'Host': url.netloc
-		}
-
-		if data:
-			assert isinstance(data, dict)
-
-			data = json.dumps(data)
-			signing_headers.update({
-				'Digest': f'SHA-256={generate_body_digest(data)}',
-				'Content-Length': str(len(data.encode('utf-8')))
-			})
-
-		signing_headers['Signature'] = create_signature_header(signing_headers)
-
-		del signing_headers['(request-target)']
-		del signing_headers['Host']
-
-		headers.update(signing_headers)
-
-	try:
-		if data:
-			logging.verbose(f'Sending "{action}" to inbox: {uri}')
-
-		else:
-			logging.verbose(f'Sending GET request to url: {uri}')
-
-		async with ClientSession(trace_configs=http_debug()) as session, app.semaphore:
-			async with session.request(method, uri, headers=headers, data=data) as resp:
-				## aiohttp has been known to leak if the response hasn't been read,
-				## so we're just gonna read the request no matter what
-				resp_data = await resp.read()
-
-				## Not expecting a response, so just return
-				if resp.status == 202:
-					return
-
-				elif resp.status != 200:
-					if not resp_data:
-						return logging.verbose(f'Received error when requesting {uri}: {resp.status} {resp_data}')
-
-					return logging.verbose(f'Received error when sending {action} to {uri}: {resp.status} {resp_data}')
-
-				if resp.content_type == MIMETYPES['activity']:
-					resp_data = await resp.json(loads=Message.new_from_json)
-
-				elif resp.content_type == MIMETYPES['json']:
-					resp_data = await resp.json(loads=DotDict.new_from_json)
-
-				else:
-					logging.verbose(f'Invalid Content-Type for "{url}": {resp.content_type}')
-					return logging.debug(f'Response: {resp_data}')
-
-				logging.debug(f'{uri} >> resp {resp_data}')
-
-				app.cache.json[uri] = resp_data
-				return resp_data
-
-	except JSONDecodeError:
-		return
-
-	except Exception:
-		traceback.print_exc()
-
-
-async def validate_signature(actor, signature, http_request):
-	headers = {key.lower(): value for key, value in http_request.headers.items()}
-	headers['(request-target)'] = ' '.join([http_request.method.lower(), http_request.path])
-
-	sigstring = build_signing_string(headers, signature['headers'])
-	logging.debug(f'sigstring: {sigstring}')
-
-	sign_alg, _, hash_alg = signature['algorithm'].partition('-')
-	logging.debug(f'sign alg: {sign_alg}, hash alg: {hash_alg}')
-
-	sigdata = base64.b64decode(signature['signature'])
-
-	pkcs = PKCS1_v1_5.new(actor.PUBKEY)
-	h = HASHES[hash_alg].new()
-	h.update(sigstring.encode('ascii'))
-	result = pkcs.verify(h, sigdata)
-
-	http_request['validated'] = result
-
-	logging.debug(f'validates? {result}')
-	return result
 
 
 class DotDict(dict):
@@ -428,16 +247,6 @@ class Message(DotDict):
 
 	# actor properties
 	@property
-	def PUBKEY(self):
-		return RSA.import_key(self.pubkey)
-
-
-	@property
-	def pubkey(self):
-		return self.publicKey.publicKeyPem
-
-
-	@property
 	def shared_inbox(self):
 		return self.get('endpoints', {}).get('sharedInbox', self.inbox)
 
@@ -457,6 +266,11 @@ class Message(DotDict):
 			return self.object.id
 
 		return self.object
+
+
+	@property
+	def signer(self):
+		return aputils.Signer.new_from_actor(self)
 
 
 class Response(AiohttpResponse):
@@ -517,11 +331,6 @@ class View(AiohttpView):
 
 
 	@property
-	def cache(self):
-		return self.app.cache
-
-
-	@property
 	def config(self):
 		return self.app.config
 
@@ -529,22 +338,3 @@ class View(AiohttpView):
 	@property
 	def database(self):
 		return self.app.database
-
-
-class WKNodeinfo(DotDict):
-	@classmethod
-	def new(cls, v20, v21):
-		return cls({
-			'links': [
-				{'rel': NODEINFO_NS['20'], 'href': v20},
-				{'rel': NODEINFO_NS['21'], 'href': v21}
-			]
-		})
-
-
-	def get_url(self, version='20'):
-		for item in self.links:
-			if item['rel'] == NODEINFO_NS[version]:
-				return item['href']
-
-		raise KeyError(version)

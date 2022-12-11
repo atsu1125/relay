@@ -1,8 +1,9 @@
+import aputils
+import asyncio
 import json
 import logging
 import traceback
 
-from Crypto.PublicKey import RSA
 from urllib.parse import urlparse
 
 
@@ -16,22 +17,7 @@ class RelayDatabase(dict):
 		})
 
 		self.config = config
-		self.PRIVKEY = None
-
-
-	@property
-	def PUBKEY(self):
-		return self.PRIVKEY.publickey()
-
-
-	@property
-	def pubkey(self):
-		return self.PUBKEY.exportKey('PEM').decode('utf-8')
-
-
-	@property
-	def privkey(self):
-		return self['private-key']
+		self.signer = None
 
 
 	@property
@@ -42,11 +28,6 @@ class RelayDatabase(dict):
 	@property
 	def inboxes(self):
 		return tuple(data['inbox'] for data in self['relay-list'].values())
-
-
-	def generate_key(self):
-		self.PRIVKEY = RSA.generate(4096)
-		self['private-key'] = self.PRIVKEY.exportKey('PEM').decode('utf-8')
 
 
 	def load(self):
@@ -68,6 +49,7 @@ class RelayDatabase(dict):
 				for item in data.get('relay-list', []):
 					domain = urlparse(item).hostname
 					self['relay-list'][domain] = {
+						'domain': domain,
 						'inbox': item,
 						'followid': None
 					}
@@ -75,9 +57,13 @@ class RelayDatabase(dict):
 			else:
 				self['relay-list'] = data.get('relay-list', {})
 
-			for domain in self['relay-list'].keys():
+			for domain, instance in self['relay-list'].items():
 				if self.config.is_banned(domain) or (self.config.whitelist_enabled and not self.config.is_whitelisted(domain)):
 					self.del_inbox(domain)
+					continue
+
+				if not instance.get('domain'):
+					instance['domain'] = domain
 
 			new_db = False
 
@@ -88,12 +74,13 @@ class RelayDatabase(dict):
 			if self.config.db.stat().st_size > 0:
 				raise e from None
 
-		if not self.privkey:
+		if not self['private-key']:
 			logging.info("No actor keys present, generating 4096-bit RSA keypair.")
-			self.generate_key()
+			self.signer = aputils.Signer.new(self.config.keyid, size=4096)
+			self['private-key'] = self.signer.export()
 
 		else:
-			self.PRIVKEY = RSA.importKey(self.privkey)
+			self.signer = aputils.Signer(self['private-key'], self.config.keyid)
 
 		self.save()
 		return not new_db
@@ -108,29 +95,34 @@ class RelayDatabase(dict):
 		if domain.startswith('http'):
 			domain = urlparse(domain).hostname
 
-		if domain not in self['relay-list']:
-			if fail:
-				raise KeyError(domain)
+		inbox = self['relay-list'].get(domain)
 
-			return
+		if inbox:
+			return inbox
 
-		return self['relay-list'][domain]
+		if fail:
+			raise KeyError(domain)
 
 
-	def add_inbox(self, inbox, followid=None, fail=False):
+	def add_inbox(self, inbox, followid=None, software=None):
 		assert inbox.startswith('https'), 'Inbox must be a url'
 		domain = urlparse(inbox).hostname
+		instance = self.get_inbox(domain)
 
-		if self.get_inbox(domain):
-			if fail:
-				raise KeyError(domain)
+		if instance:
+			if followid:
+				instance['followid'] = followid
 
-			return False
+			if software:
+				instance['software'] = software
+
+			return instance
 
 		self['relay-list'][domain] = {
 			'domain': domain,
 			'inbox': inbox,
-			'followid': followid
+			'followid': followid,
+			'software': software
 		}
 
 		logging.verbose(f'Added inbox to database: {inbox}')
@@ -156,11 +148,6 @@ class RelayDatabase(dict):
 
 		logging.debug(f'Follow ID does not match: db = {data["followid"]}, object = {followid}')
 		return False
-
-
-	def set_followid(self, domain, followid):
-		data = self.get_inbox(domain, fail=True)
-		data['followid'] = followid
 
 
 	def get_request(self, domain, fail=True):
@@ -197,3 +184,14 @@ class RelayDatabase(dict):
 			domain = urlparse(inbox).hostname
 
 		del self['follow-requests'][domain]
+
+
+	def distill_inboxes(self, message):
+		src_domains = {
+			message.domain,
+			urlparse(message.objectid).netloc
+		}
+
+		for domain, instance in self['relay-list'].items():
+			if domain not in src_domains:
+				yield instance['inbox']

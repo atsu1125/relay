@@ -8,10 +8,11 @@ from urllib.parse import urlparse
 
 from . import misc, __version__
 from .application import Application
-from .config import relay_software_names
+from .config import RELAY_SOFTWARE
 
 
 app = None
+CONFIG_IGNORE = {'blocked_software', 'blocked_instances', 'whitelist'}
 
 
 @click.group('cli', context_settings={'show_default': True}, invoke_without_command=True)
@@ -24,15 +25,95 @@ def cli(ctx, config):
 
 	if not ctx.invoked_subcommand:
 		if app.config.host.endswith('example.com'):
-			relay_setup.callback()
+			cli_setup.callback()
 
 		else:
-			relay_run.callback()
+			cli_run.callback()
+
+
+@cli.command('setup')
+def cli_setup():
+	'Generate a new config'
+
+	while True:
+		app.config.host = click.prompt('What domain will the relay be hosted on?', default=app.config.host)
+
+		if not app.config.host.endswith('example.com'):
+			break
+
+		click.echo('The domain must not be example.com')
+
+	if not app.config.is_docker:
+		app.config.listen = click.prompt('Which address should the relay listen on?', default=app.config.listen)
+
+		while True:
+			app.config.port = click.prompt('What TCP port should the relay listen on?', default=app.config.port, type=int)
+			break
+
+	app.config.save()
+
+	if not app.config.is_docker and click.confirm('Relay all setup! Would you like to run it now?'):
+		cli_run.callback()
+
+
+@cli.command('run')
+def cli_run():
+	'Run the relay'
+
+	if app.config.host.endswith('example.com'):
+		return click.echo('Relay is not set up. Please edit your relay config or run "activityrelay setup".')
+
+	vers_split = platform.python_version().split('.')
+	pip_command = 'pip3 uninstall pycrypto && pip3 install pycryptodome'
+
+	if Crypto.__version__ == '2.6.1':
+		if int(vers_split[1]) > 7:
+			click.echo('Error: PyCrypto is broken on Python 3.8+. Please replace it with pycryptodome before running again. Exiting...')
+			return click.echo(pip_command)
+
+		else:
+			click.echo('Warning: PyCrypto is old and should be replaced with pycryptodome')
+			return click.echo(pip_command)
+
+	if not misc.check_open_port(app.config.listen, app.config.port):
+		return click.echo(f'Error: A server is already running on port {app.config.port}')
+
+	app.run()
+
+
+# todo: add config default command for resetting config key
+@cli.group('config')
+def cli_config():
+	'Manage the relay config'
+	pass
+
+
+@cli_config.command('list')
+def cli_config_list():
+	'List the current relay config'
+
+	click.echo('Relay Config:')
+
+	for key, value in app.config.items():
+		if key not in CONFIG_IGNORE:
+			key = f'{key}:'.ljust(20)
+			click.echo(f'- {key} {value}')
+
+
+@cli_config.command('set')
+@click.argument('key')
+@click.argument('value')
+def cli_config_set(key, value):
+	'Set a config value'
+
+	app.config[key] = value
+	app.config.save()
+
+	print(f'{key}: {app.config[key]}')
 
 
 @cli.group('inbox')
-@click.pass_context
-def cli_inbox(ctx):
+def cli_inbox():
 	'Manage the inboxes in the database'
 	pass
 
@@ -67,15 +148,19 @@ def cli_inbox_follow(actor):
 		inbox = inbox_data['inbox']
 
 	except KeyError:
-		actor_data = asyncio.run(misc.request(actor))
+		actor_data = asyncio.run(app.client.get(actor, sign_headers=True))
+
+		if not actor_data:
+			return click.echo(f'Failed to fetch actor: {actor}')
+
 		inbox = actor_data.shared_inbox
 
 	message = misc.Message.new_follow(
 		host = app.config.host,
-		actor = actor.id
+		actor = actor
 	)
 
-	asyncio.run(misc.request(inbox, message))
+	asyncio.run(app.client.post(inbox, message))
 	click.echo(f'Sent follow message to actor: {actor}')
 
 
@@ -101,7 +186,7 @@ def cli_inbox_unfollow(actor):
 		)
 
 	except KeyError:
-		actor_data = asyncio.run(misc.request(actor))
+		actor_data = asyncio.run(app.client.get(actor, sign_headers=True))
 		inbox = actor_data.shared_inbox
 		message = misc.Message.new_unfollow(
 			host = app.config.host,
@@ -113,7 +198,7 @@ def cli_inbox_unfollow(actor):
 			}
 		)
 
-	asyncio.run(misc.request(inbox, message))
+	asyncio.run(app.client.post(inbox, message))
 	click.echo(f'Sent unfollow message to: {actor}')
 
 
@@ -128,11 +213,13 @@ def cli_inbox_add(inbox):
 	if app.config.is_banned(inbox):
 		return click.echo(f'Error: Refusing to add banned inbox: {inbox}')
 
-	if app.database.add_inbox(inbox):
-		app.database.save()
-		return click.echo(f'Added inbox to the database: {inbox}')
+	if app.database.get_inbox(inbox):
+		return click.echo(f'Error: Inbox already in database: {inbox}')
 
-	click.echo(f'Error: Inbox already in database: {inbox}')
+	app.database.add_inbox(inbox)
+	app.database.save()
+
+	click.echo(f'Added inbox to the database: {inbox}')
 
 
 @cli_inbox.command('remove')
@@ -228,21 +315,21 @@ def cli_software_ban(name, fetch_nodeinfo):
 	'Ban software. Use RELAYS for NAME to ban relays'
 
 	if name == 'RELAYS':
-		for name in relay_software_names:
+		for name in RELAY_SOFTWARE:
 			app.config.ban_software(name)
 
 		app.config.save()
 		return click.echo('Banned all relay software')
 
 	if fetch_nodeinfo:
-		software = asyncio.run(misc.fetch_nodeinfo(name))
+		nodeinfo = asyncio.run(app.client.fetch_nodeinfo(name))
 
-		if not software:
+		if not nodeinfo:
 			click.echo(f'Failed to fetch software name from domain: {name}')
 
-		name = software
+		name = nodeinfo.sw_name
 
-	if config.ban_software(name):
+	if app.config.ban_software(name):
 		app.config.save()
 		return click.echo(f'Banned software: {name}')
 
@@ -258,26 +345,25 @@ def cli_software_unban(name, fetch_nodeinfo):
 	'Ban software. Use RELAYS for NAME to unban relays'
 
 	if name == 'RELAYS':
-		for name in relay_software_names:
+		for name in RELAY_SOFTWARE:
 			app.config.unban_software(name)
 
-		config.save()
+		app.config.save()
 		return click.echo('Unbanned all relay software')
 
 	if fetch_nodeinfo:
-		software = asyncio.run(misc.fetch_nodeinfo(name))
+		nodeinfo = asyncio.run(app.client.fetch_nodeinfo(name))
 
-		if not software:
+		if not nodeinfo:
 			click.echo(f'Failed to fetch software name from domain: {name}')
 
-		name = software
+		name = nodeinfo.sw_name
 
 	if app.config.unban_software(name):
 		app.config.save()
 		return click.echo(f'Unbanned software: {name}')
 
 	click.echo(f'Software wasn\'t banned: {name}')
-
 
 
 @cli.group('whitelist')
@@ -288,6 +374,8 @@ def cli_whitelist():
 
 @cli_whitelist.command('list')
 def cli_whitelist_list():
+	'List all the instances in the whitelist'
+
 	click.echo('Current whitelisted domains')
 
 	for domain in app.config.whitelist:
@@ -317,59 +405,18 @@ def cli_whitelist_remove(instance):
 	app.config.save()
 
 	if app.config.whitelist_enabled:
-		if app.database.del_inbox(inbox):
+		if app.database.del_inbox(instance):
 			app.database.save()
 
 	click.echo(f'Removed instance from the whitelist: {instance}')
 
 
-@cli.command('setup')
-def relay_setup():
-	'Generate a new config'
+@cli_whitelist.command('import')
+def cli_whitelist_import():
+	'Add all current inboxes to the whitelist'
 
-	while True:
-		app.config.host = click.prompt('What domain will the relay be hosted on?', default=app.config.host)
-
-		if not app.config.host.endswith('example.com'):
-			break
-
-		click.echo('The domain must not be example.com')
-
-	app.config.listen = click.prompt('Which address should the relay listen on?', default=app.config.listen)
-
-	while True:
-		app.config.port = click.prompt('What TCP port should the relay listen on?', default=app.config.port, type=int)
-		break
-
-	app.config.save()
-
-	if not app['is_docker'] and click.confirm('Relay all setup! Would you like to run it now?'):
-		relay_run.callback()
-
-
-@cli.command('run')
-def relay_run():
-	'Run the relay'
-
-	if app.config.host.endswith('example.com'):
-		return click.echo('Relay is not set up. Please edit your relay config or run "activityrelay setup".')
-
-	vers_split = platform.python_version().split('.')
-	pip_command = 'pip3 uninstall pycrypto && pip3 install pycryptodome'
-
-	if Crypto.__version__ == '2.6.1':
-		if int(vers_split[1]) > 7:
-			click.echo('Error: PyCrypto is broken on Python 3.8+. Please replace it with pycryptodome before running again. Exiting...')
-			return click.echo(pip_command)
-
-		else:
-			click.echo('Warning: PyCrypto is old and should be replaced with pycryptodome')
-			return click.echo(pip_command)
-
-	if not misc.check_open_port(app.config.listen, app.config.port):
-		return click.echo(f'Error: A server is already running on port {app.config.port}')
-
-	app.run()
+	for domain in app.database.hostnames:
+		cli_whitelist_add.callback(domain)
 
 
 def main():

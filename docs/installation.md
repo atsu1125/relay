@@ -15,7 +15,7 @@ the [official pipx docs](https://pypa.github.io/pipx/installation/) for more in-
 
 Now simply install ActivityRelay directly from git
 
-	pipx install git+https://git.pleroma.social/pleroma/relay@0.2.3
+	pipx install git+https://git.pleroma.social/pleroma/relay@0.2.4
 
 Or from a cloned git repo.
 
@@ -39,7 +39,7 @@ be installed via [pyenv](https://github.com/pyenv/pyenv).
 The instructions for installation via pip are very similar to pipx. Installation can be done from
 git
 
-	python3 -m pip install git+https://git.pleroma.social/pleroma/relay@0.2.3
+	python3 -m pip install git+https://git.pleroma.social/pleroma/relay@0.2.4
 
 or a cloned git repo.
 
