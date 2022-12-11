@@ -9,7 +9,13 @@ a = Analysis(
     pathex=[],
     binaries=[],
     datas=[],
-    hiddenimports=[],
+    hiddenimports=[
+        'aputils.enums',
+        'aputils.errors',
+        'aputils.misc',
+        'aputils.objects',
+        'aputils.signer'
+    ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
