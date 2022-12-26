@@ -2,7 +2,8 @@ import logging
 import traceback
 
 from aiohttp import ClientSession, ClientTimeout, TCPConnector
-from aiohttp.client_exceptions import ClientConnectorError, ServerTimeoutError
+from aiohttp.client_exceptions import ClientConnectionError, ClientSSLError
+from asyncio.exceptions import TimeoutError as AsyncTimeoutError
 from aputils import Nodeinfo, WellKnownNodeinfo
 from datetime import datetime
 from cachetools import LRUCache
@@ -124,12 +125,14 @@ class HttpClient:
 		except JSONDecodeError:
 			logging.verbose(f'Failed to parse JSON')
 
-		except (ClientConnectorError, ServerTimeoutError):
+		except ClientSSLError:
+			logging.verbose(f'SSL error when connecting to {urlparse(url).netloc}')
+
+		except (AsyncTimeoutError, ClientConnectionError):
 			logging.verbose(f'Failed to connect to {urlparse(url).netloc}')
 
 		except Exception as e:
 			traceback.print_exc()
-			raise e
 
 
 	async def post(self, url, message):
@@ -158,8 +161,11 @@ class HttpClient:
 				logging.verbose(f'Received error when pushing to {url}: {resp.status}')
 				return logging.verbose(await resp.read()) # change this to debug
 
-		except (ClientConnectorError, ServerTimeoutError):
-			logging.verbose(f'Failed to connect to {url}')
+		except ClientSSLError:
+			logging.warning(f'SSL error when pushing to {urlparse(url).netloc}')
+
+		except (AsyncTimeoutError, ClientConnectionError):
+			logging.warning(f'Failed to connect to {urlparse(url).netloc} for message push')
 
 		## prevent workers from being brought down
 		except Exception as e:
