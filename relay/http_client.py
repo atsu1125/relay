@@ -38,6 +38,15 @@ class HttpClient:
 		self._session = None
 
 
+	async def __aenter__(self):
+		await self.open()
+		return self
+
+
+	async def __aexit__(self, *_):
+		await self.close()
+
+
 	@property
 	def limit(self):
 		return self.cfg['limit']
@@ -196,3 +205,18 @@ class HttpClient:
 			return False
 
 		return await self.get(nodeinfo_url, loads=Nodeinfo.new_from_json) or False
+
+
+async def get(database, *args, **kwargs):
+	async with HttpClient(database) as client:
+		return await client.get(*args, **kwargs)
+
+
+async def post(database, *args, **kwargs):
+	async with HttpClient(database) as client:
+		return await client.post(*args, **kwargs)
+
+
+async def fetch_nodeinfo(database, *args, **kwargs):
+	async with HttpClient(database) as client:
+		return await client.fetch_nodeinfo(*args, **kwargs)

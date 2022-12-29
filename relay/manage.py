@@ -7,6 +7,7 @@ import platform
 from urllib.parse import urlparse
 
 from . import misc, __version__
+from . import http_client as http
 from .application import Application
 from .config import RELAY_SOFTWARE
 
@@ -148,7 +149,7 @@ def cli_inbox_follow(actor):
 		inbox = inbox_data['inbox']
 
 	except KeyError:
-		actor_data = asyncio.run(app.client.get(actor, sign_headers=True))
+		actor_data = asyncio.run(http.get(app.database, actor, sign_headers=True))
 
 		if not actor_data:
 			return click.echo(f'Failed to fetch actor: {actor}')
@@ -160,7 +161,7 @@ def cli_inbox_follow(actor):
 		actor = actor
 	)
 
-	asyncio.run(app.client.post(inbox, message))
+	asyncio.run(http.post(app.database, inbox, message))
 	click.echo(f'Sent follow message to actor: {actor}')
 
 
@@ -186,7 +187,7 @@ def cli_inbox_unfollow(actor):
 		)
 
 	except KeyError:
-		actor_data = asyncio.run(app.client.get(actor, sign_headers=True))
+		actor_data = asyncio.run(http.get(app.database, actor, sign_headers=True))
 		inbox = actor_data.shared_inbox
 		message = misc.Message.new_unfollow(
 			host = app.config.host,
@@ -198,7 +199,7 @@ def cli_inbox_unfollow(actor):
 			}
 		)
 
-	asyncio.run(app.client.post(inbox, message))
+	asyncio.run(http.post(app.database, inbox, message))
 	click.echo(f'Sent unfollow message to: {actor}')
 
 
@@ -322,7 +323,7 @@ def cli_software_ban(name, fetch_nodeinfo):
 		return click.echo('Banned all relay software')
 
 	if fetch_nodeinfo:
-		nodeinfo = asyncio.run(app.client.fetch_nodeinfo(name))
+		nodeinfo = asyncio.run(http.fetch_nodeinfo(app.database, name))
 
 		if not nodeinfo:
 			click.echo(f'Failed to fetch software name from domain: {name}')
@@ -352,7 +353,7 @@ def cli_software_unban(name, fetch_nodeinfo):
 		return click.echo('Unbanned all relay software')
 
 	if fetch_nodeinfo:
-		nodeinfo = asyncio.run(app.client.fetch_nodeinfo(name))
+		nodeinfo = asyncio.run(http.fetch_nodeinfo(app.database, name))
 
 		if not nodeinfo:
 			click.echo(f'Failed to fetch software name from domain: {name}')
