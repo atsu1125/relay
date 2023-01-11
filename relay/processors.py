@@ -11,12 +11,12 @@ cache = LRUCache(1024)
 
 
 def person_check(actor, software):
-	## pleroma and akkoma use Person for the actor type for some reason
-	if software in {'akkoma', 'pleroma'} and actor.id != f'https://{actor.domain}/relay':
-		return True
+	## pleroma and akkoma may use Person for the actor type for some reason
+	if software in {'akkoma', 'pleroma'} and actor.id == f'https://{actor.domain}/relay':
+		return False
 
 	## make sure the actor is an application
-	elif actor.type != 'Application':
+	if actor.type != 'Application':
 		return True
 
 
