@@ -9,18 +9,31 @@ port: 8080
 # Note
 note: "Make a note about your instance here."
 
-# this section is for ActivityPub
+# Number of worker threads to start. If 0, use asyncio futures instead of threads.
+workers: 0
+
+# Maximum number of inbox posts to do at once
+# If workers is set to 1 or above, this is the max for each worker
+push_limit: 512
+
+# The amount of json objects to cache from GET requests
+json_cache: 1024
+
 ap:
-  # this is used for generating activitypub messages, as well as instructions for
-  # linking AP identities.  it should be an SSL-enabled domain reachable by https.
+  # This is used for generating activitypub messages, as well as instructions for
+  # linking AP identities.  It should be an SSL-enabled domain reachable by https.
   host: 'relay.example.com'
+
   blocked_instances:
   - 'bad-instance.example.com'
   - 'another-bad-instance.example.com'
+
   whitelist_enabled: false
+
   whitelist:
   - 'good-instance.example.com'
   - 'another.good-instance.example.com'
+
   # uncomment the lines below to prevent certain activitypub software from posting
   # to the relay (all known relays by default). this uses the software name in nodeinfo
   #blocked_software:
