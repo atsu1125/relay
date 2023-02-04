@@ -44,7 +44,7 @@ async def home(request):
 <title>ActivityPub Relay at {host}</title>
 <style>
 p {{ color: #FFFFFF; font-family: monospace, arial; font-size: 100%; }}
-body {{ background-color: #000000; }}
+body {{ background-color: #4b0082; }}
 a {{ color: #26F; }}
 a:visited {{ color: #46C; }}
 a:hover {{ color: #8AF; }}
@@ -54,7 +54,7 @@ a:hover {{ color: #8AF; }}
 <p>This is an Activity Relay for fediverse instances.</p>
 <p>{note}</p>
 <p>You may subscribe to this relay with the address: <a href="https://{host}/actor">https://{host}/actor</a></p>
-<p>To host your own relay, you may download the code at this address: <a href="https://git.pleroma.social/pleroma/relay">https://git.pleroma.social/pleroma/relay</a></p>
+<p>To host your own relay, you may download the code at this address: <a href="https://github.com/atsu1125/relay">https://github.com/atsu1125/relay</a></p>
 <br><p>List of {count} registered instances:<br>{targets}</p>
 </body></html>"""
 
